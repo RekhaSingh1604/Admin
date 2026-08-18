@@ -1,16 +1,64 @@
-# React + Vite
+# Bingo Admin Panel
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A responsive Admin Panel developed as part of the Bingo Singapore Pte. Ltd. frontend assessment.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- React.js
+- Vite
+- JavaScript (ES6+)
+- React Router DOM
+- Axios
+- CSS
+- JWT Authentication
+- REST APIs
 
-## React Compiler
+## Implemented Modules
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Authentication & Session
+- Login with JWT authentication
+- Access and refresh token handling
+- Protected routes
+- Automatic token refresh on `401 Unauthorized`
+- Logout and logout-all functionality
+- Session handling
 
-## Expanding the Oxlint configuration
+### Dashboard
+- Dynamic KPI cards
+- Live API integration
+- Users, vendors, products and order statistics
+- Loading and error states
+- Responsive dashboard UI
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+API:
+```text
+GET /api/v1/admin/dashboard
+
+Profile
+Dynamic profile information
+Full name
+Email
+Phone
+Role
+Account status
+Email/phone verification status
+Responsive profile UI
+
+API:
+
+GET /api/v1/auth/profile
+Settings
+Settings sidebar/categories
+Setting groups
+Dynamic settings UI
+Loading and error states
+Responsive settings layout
+UI & UX
+Fully responsive admin layout
+Responsive sidebar and mobile navigation
+Modern dashboard UI
+Loading states
+Empty states
+Error states
+Retry actions
+Permission-aware UI handling
