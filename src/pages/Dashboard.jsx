@@ -246,6 +246,31 @@ export default function Dashboard() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+const [data, setData] = useState(null);
+
+
+const loadDashboard = async () => {
+  try {
+    setLoading(true);
+    setError("");
+
+    const response = await getDashboard();
+
+    setData(response);
+  } catch (error) {
+    console.error(error);
+
+    setError(
+      error?.response?.data?.message ||
+      "Failed to load dashboard"
+    );
+  } finally {
+    setLoading(false);
+  }
+};
+useEffect(() => {
+  loadDashboard();
+}, []);
 
   const fetchDashboard = async () => {
     try {
@@ -301,7 +326,28 @@ export default function Dashboard() {
   useEffect(() => {
     fetchDashboard();
   }, []);
+if (loading) {
+  return (
+    <div className="dashboard-page">
+      <div className="dashboard-loading">
+        <div className="spinner"></div>
+        <p>Loading dashboard...</p>
+      </div>
+    </div>
+  );
+}
+if (error) {
+  return (
+    <div className="dashboard-page">
+      <h1>Dashboard</h1>
+      <p>{error}</p>
 
+      <button onClick={loadDashboard}>
+        Retry
+      </button>
+    </div>
+  );
+}
   if (loading) {
     return (
       <div className="dashboard-page">

@@ -1,22 +1,25 @@
-
 import api from "../services/api";
 import { useCallback, useEffect, useState } from "react";
-
-
 
 const STATUS_OPTIONS = [
   { value: "", label: "All Status" },
   { value: "ACTIVE", label: "Active" },
   { value: "INACTIVE", label: "Inactive" },
-  { value: "PENDING_VERIFICATION", label: "Pending Verification" },
+  {
+    value: "PENDING_VERIFICATION",
+    label: "Pending Verification",
+  },
   { value: "SUSPENDED", label: "Suspended" },
   { value: "BLOCKED", label: "Blocked" },
 ];
 
+/* -----------------------------
+   Response Helpers
+----------------------------- */
+
 function getUsersFromResponse(response) {
   const body = response?.data;
 
-  // Possible API structures
   if (Array.isArray(body?.data)) {
     return body.data;
   }
@@ -67,7 +70,12 @@ function getErrorMessage(error) {
 }
 
 function getUserId(user) {
-  return user?.id || user?.userId || user?.uuid || "-";
+  return (
+    user?.id ||
+    user?.userId ||
+    user?.uuid ||
+    "-"
+  );
 }
 
 function getUserName(user) {
@@ -95,7 +103,9 @@ function getUserRoles(user) {
   if (Array.isArray(user?.roles)) {
     return user.roles
       .map((item) => {
-        if (typeof item === "string") return item;
+        if (typeof item === "string") {
+          return item;
+        }
 
         return (
           item?.role?.name ||
@@ -122,16 +132,28 @@ function getUserRoles(user) {
   return [];
 }
 
+/* -----------------------------
+   Users Page
+----------------------------- */
+
 export default function Users() {
   const [users, setUsers] = useState([]);
+
   const [status, setStatus] = useState("");
 
+  // Initial page loading
   const [loading, setLoading] = useState(true);
+
+  // Refresh button loading
   const [refreshing, setRefreshing] = useState(false);
 
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
+
+  /* -----------------------------
+     Load Users
+  ----------------------------- */
 
   const loadUsers = useCallback(
     async (showRefresh = false) => {
@@ -150,24 +172,43 @@ export default function Users() {
           params.status = status;
         }
 
-        console.log("GET USERS PARAMS:", params);
+        console.log(
+          "GET USERS PARAMS:",
+          params
+        );
 
-        const response = await api.get("/users", {
-          params,
-        });
+        const response = await api.get(
+          "/users",
+          {
+            params,
+          }
+        );
 
-        console.log("USERS FULL RESPONSE:", response);
+        console.log(
+          "USERS FULL RESPONSE:",
+          response
+        );
 
-        const list = getUsersFromResponse(response);
+        const list =
+          getUsersFromResponse(response);
 
-        console.log("USERS LIST:", list);
+        console.log(
+          "USERS LIST:",
+          list
+        );
 
         setUsers(list);
       } catch (error) {
-        console.error("USERS ERROR:", error);
+        console.error(
+          "USERS ERROR:",
+          error
+        );
 
         setUsers([]);
-        setError(getErrorMessage(error));
+
+        setError(
+          getErrorMessage(error)
+        );
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -176,219 +217,382 @@ export default function Users() {
     [status]
   );
 
+  /* -----------------------------
+     Initial Load
+  ----------------------------- */
+
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
 
-  const filteredUsers = users.filter((user) => {
-    const searchText = search.toLowerCase().trim();
+  /* -----------------------------
+     Search
+  ----------------------------- */
 
-    if (!searchText) {
-      return true;
+  const filteredUsers = users.filter(
+    (user) => {
+      const searchText =
+        search.toLowerCase().trim();
+
+      if (!searchText) {
+        return true;
+      }
+
+      const name =
+        getUserName(user).toLowerCase();
+
+      const email =
+        getUserEmail(user).toLowerCase();
+
+      const phone =
+        getUserPhone(user).toLowerCase();
+
+      return (
+        name.includes(searchText) ||
+        email.includes(searchText) ||
+        phone.includes(searchText)
+      );
     }
+  );
 
-    const name = getUserName(user).toLowerCase();
-    const email = getUserEmail(user).toLowerCase();
-    const phone = getUserPhone(user).toLowerCase();
-
-    return (
-      name.includes(searchText) ||
-      email.includes(searchText) ||
-      phone.includes(searchText)
-    );
-  });
+  /* -----------------------------
+     UI
+  ----------------------------- */
 
   return (
     <div className="users-page">
+
       {/* Header */}
       <div className="users-header">
+
         <div>
           <h1>Users</h1>
-          <p>Manage users and their roles.</p>
+
+          <p>
+            Manage users and their roles.
+          </p>
         </div>
 
         <button
           className="refresh-btn"
-          onClick={() => loadUsers(true)}
-          disabled={loading || refreshing}
+          onClick={() =>
+            loadUsers(true)
+          }
+          disabled={
+            loading || refreshing
+          }
         >
-          {refreshing ? "Refreshing..." : "Refresh"}
+          {refreshing
+            ? "Refreshing..."
+            : "Refresh"}
         </button>
+
       </div>
 
       {/* Filters */}
       <div className="users-toolbar">
+
         <div className="search-wrapper">
+
           <input
             type="text"
             placeholder="Search name, email or phone..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) =>
+              setSearch(
+                e.target.value
+              )
+            }
           />
+
         </div>
 
         <select
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onChange={(e) =>
+            setStatus(
+              e.target.value
+            )
+          }
         >
-          {STATUS_OPTIONS.map((item) => (
-            <option
-              key={item.value}
-              value={item.value}
-            >
-              {item.label}
-            </option>
-          ))}
+          {STATUS_OPTIONS.map(
+            (item) => (
+              <option
+                key={item.value}
+                value={item.value}
+              >
+                {item.label}
+              </option>
+            )
+          )}
         </select>
+
       </div>
 
       {/* Error */}
       {error && (
         <div className="users-error">
+
           <div>
-            <strong>Unable to load users</strong>
-            <p>{error}</p>
+            <strong>
+              Unable to load users
+            </strong>
+
+            <p>
+              {error}
+            </p>
           </div>
 
-          <button onClick={() => loadUsers()}>
+          <button
+            onClick={() =>
+              loadUsers()
+            }
+          >
             Try Again
           </button>
+
         </div>
       )}
 
       {/* Loading */}
       {loading && (
         <div className="users-card">
+
           <div className="table-loading">
+
             <div className="skeleton skeleton-title" />
+
             <div className="skeleton" />
+
             <div className="skeleton" />
+
             <div className="skeleton" />
+
             <div className="skeleton" />
+
           </div>
+
         </div>
       )}
 
       {/* Table */}
       {!loading && !error && (
         <div className="users-card">
+
           <div className="users-card-header">
+
             <div>
-              <h2>All Users</h2>
+
+              <h2>
+                All Users
+              </h2>
+
               <span>
                 {filteredUsers.length} user
-                {filteredUsers.length !== 1 ? "s" : ""}
+                {filteredUsers.length !==
+                1
+                  ? "s"
+                  : ""}
               </span>
+
             </div>
+
           </div>
 
-          {filteredUsers.length === 0 ? (
+          {/* Empty State */}
+          {filteredUsers.length ===
+          0 ? (
             <div className="empty-users">
-              <div className="empty-icon">👥</div>
 
-              <h3>No users found</h3>
+              <div className="empty-icon">
+                👥
+              </div>
+
+              <h3>
+                No users found
+              </h3>
 
               <p>
                 {search
                   ? "No users match your search."
                   : "There are no users available for this filter."}
               </p>
+
             </div>
           ) : (
+
+            /* Users Table */
             <div className="table-container">
+
               <table className="users-table">
+
                 <thead>
+
                   <tr>
-                    <th>User</th>
-                    <th>Phone</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                    <th>User ID</th>
+
+                    <th>
+                      User
+                    </th>
+
+                    <th>
+                      Phone
+                    </th>
+
+                    <th>
+                      Role
+                    </th>
+
+                    <th>
+                      Status
+                    </th>
+
+                    <th>
+                      User ID
+                    </th>
+
                   </tr>
+
                 </thead>
 
                 <tbody>
-                  {filteredUsers.map((user, index) => {
-                    const roles = getUserRoles(user);
-                    const userStatus = getUserStatus(user);
 
-                    return (
-                      <tr
-                        key={
-                          user?.id ||
-                          user?.uuid ||
-                          user?.userId ||
-                          index
-                        }
-                      >
-                        <td>
-                          <div className="user-cell">
-                            <div className="user-avatar">
-                              {getUserName(user)
-                                .charAt(0)
-                                .toUpperCase()}
-                            </div>
+                  {filteredUsers.map(
+                    (user, index) => {
 
-                            <div>
-                              <strong>
-                                {getUserName(user)}
-                              </strong>
+                      const roles =
+                        getUserRoles(
+                          user
+                        );
 
-                              <span>
-                                {getUserEmail(user)}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
+                      const userStatus =
+                        getUserStatus(
+                          user
+                        );
 
-                        <td>
-                          {getUserPhone(user)}
-                        </td>
+                      return (
+                        <tr
+                          key={
+                            user?.id ||
+                            user?.uuid ||
+                            user?.userId ||
+                            index
+                          }
+                        >
 
-                        <td>
-                          <div className="role-list">
-                            {roles.length > 0 ? (
-                              roles.map((role, roleIndex) => (
-                                <span
-                                  className="role-badge"
-                                  key={`${role}-${roleIndex}`}
-                                >
-                                  {role}
+                          {/* User */}
+                          <td>
+
+                            <div className="user-cell">
+
+                              <div className="user-avatar">
+
+                                {getUserName(
+                                  user
+                                )
+                                  .charAt(
+                                    0
+                                  )
+                                  .toUpperCase()}
+
+                              </div>
+
+                              <div>
+
+                                <strong>
+                                  {getUserName(
+                                    user
+                                  )}
+                                </strong>
+
+                                <span>
+                                  {getUserEmail(
+                                    user
+                                  )}
                                 </span>
-                              ))
-                            ) : (
-                              <span className="muted">
-                                No role
-                              </span>
-                            )}
-                          </div>
-                        </td>
 
-                        <td>
-                          <span
-                            className={`status-badge status-${userStatus.toLowerCase()}`}
-                          >
-                            {userStatus.replaceAll(
-                              "_",
-                              " "
-                            )}
-                          </span>
-                        </td>
+                              </div>
 
-                        <td>
-                          <span className="user-id">
-                            {getUserId(user)}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            </div>
+
+                          </td>
+
+                          {/* Phone */}
+                          <td>
+                            {getUserPhone(
+                              user
+                            )}
+                          </td>
+
+                          {/* Role */}
+                          <td>
+
+                            <div className="role-list">
+
+                              {roles.length >
+                              0 ? (
+                                roles.map(
+                                  (
+                                    role,
+                                    roleIndex
+                                  ) => (
+                                    <span
+                                      className="role-badge"
+                                      key={`${role}-${roleIndex}`}
+                                    >
+                                      {role}
+                                    </span>
+                                  )
+                                )
+                              ) : (
+                                <span className="muted">
+                                  No role
+                                </span>
+                              )}
+
+                            </div>
+
+                          </td>
+
+                          {/* Status */}
+                          <td>
+
+                            <span
+                              className={`status-badge status-${userStatus.toLowerCase()}`}
+                            >
+                              {userStatus.replaceAll(
+                                "_",
+                                " "
+                              )}
+                            </span>
+
+                          </td>
+
+                          {/* User ID */}
+                          <td>
+
+                            <span className="user-id">
+                              {getUserId(
+                                user
+                              )}
+                            </span>
+
+                          </td>
+
+                        </tr>
+                      );
+                    }
+                  )}
+
                 </tbody>
+
               </table>
+
             </div>
           )}
+
         </div>
       )}
+
     </div>
   );
 }
