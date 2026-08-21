@@ -1,159 +1,11 @@
-// import {
-//   Navigate,
-//   Route,
-//   Routes,
-// } from "react-router-dom";
-
-// import Login from "./pages/Login";
-// import Dashboard from "./pages/Dashboard";
-// import Users from "./pages/Users";
-// import Roles from "./pages/Roles";
-// import Permissions from "./pages/Permissions";
-// import Analytics from "./pages/Analytics";
-// import Profile from "./pages/Profile";
-// import Settings from "./pages/Settings";
-
-// import { useAuth } from "./context/AuthContext";
-
-// function ProtectedRoute({
-//   children,
-// }) {
-//   const {
-//     loading,
-//     isAuthenticated,
-//   } = useAuth();
-
-//   if (loading) {
-//     return (
-//       <div
-//         style={{
-//           padding: 40,
-//           textAlign: "center",
-//         }}
-//       >
-//         Loading...
-//       </div>
-//     );
-//   }
-
-//   if (!isAuthenticated) {
-//     return (
-//       <Navigate
-//         to="/login"
-//         replace
-//       />
-//     );
-//   }
-
-//   return children;
-// }
-
-// // export default function App() {
-// //   return (
-// //     <Routes>
-
-// //       <Route
-// //         path="/login"
-// //         element={<Login />}
-// //       />
-
-// //       <Route
-// //         path="/dashboard"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Dashboard />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/users"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Users />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/roles"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Roles />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/permissions"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Permissions />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/analytics"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Analytics />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/profile"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Profile />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/settings"
-// //         element={
-// //           <ProtectedRoute>
-// //             <Settings />
-// //           </ProtectedRoute>
-// //         }
-// //       />
-
-// //       <Route
-// //         path="/"
-// //         element={
-// //           <Navigate
-// //             to="/dashboard"
-// //             replace
-// //           />
-// //         }
-// //       />
-
-// //       <Route
-// //         path="*"
-// //         element={
-// //           <Navigate
-// //             to="/dashboard"
-// //             replace
-// //           />
-// //         }
-// //       />
-
-// //     </Routes>
-// //   );
-// // }
-
 import {
   Navigate,
   Route,
   Routes,
 } from "react-router-dom";
 
-import {
-  useAuth,
-} from "./context/AuthContext";
-import Settings from "./pages/Settings";
+import { useAuth } from "./context/AuthContext";
+
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Users from "./pages/Users";
@@ -161,10 +13,17 @@ import Roles from "./pages/Roles";
 import Permissions from "./pages/Permissions";
 import Analytics from "./pages/Analytics";
 import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
 
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
 import Layout from "./components/Layout";
 import Loading from "./components/Loading";
+
+/* =========================================
+   PROTECTED ROUTE
+========================================= */
 
 function ProtectedRoute({
   children,
@@ -176,7 +35,9 @@ function ProtectedRoute({
 
   if (loading) {
     return (
-      <Loading text="Checking session..." />
+      <Loading
+        text="Checking session..."
+      />
     );
   }
 
@@ -192,6 +53,10 @@ function ProtectedRoute({
   return children;
 }
 
+/* =========================================
+   PROTECTED LAYOUT
+========================================= */
+
 function ProtectedLayout({
   children,
 }) {
@@ -204,14 +69,40 @@ function ProtectedLayout({
   );
 }
 
+/* =========================================
+   APP
+========================================= */
+
 export default function App() {
   return (
     <Routes>
+
+      {/* =========================
+          PUBLIC ROUTES
+      ========================= */}
 
       <Route
         path="/login"
         element={<Login />}
       />
+
+      <Route
+        path="/forgot-password"
+        element={
+          <ForgotPassword />
+        }
+      />
+
+      <Route
+        path="/reset-password"
+        element={
+          <ResetPassword />
+        }
+      />
+
+      {/* =========================
+          PROTECTED ROUTES
+      ========================= */}
 
       <Route
         path="/dashboard"
@@ -276,6 +167,10 @@ export default function App() {
         }
       />
 
+      {/* =========================
+          DEFAULT ROUTE
+      ========================= */}
+
       <Route
         path="/"
         element={
@@ -286,6 +181,9 @@ export default function App() {
         }
       />
 
+      {/* =========================
+          404 / UNKNOWN ROUTE
+      ========================= */}
 
       <Route
         path="*"

@@ -1,24 +1,52 @@
-import api from "../services/api";
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
+
+import UserModal from "../components/users/UserModal";
+
+import {
+  getUsers,
+  getRoles,
+  createUser,
+  updateUser,
+  deleteUser,
+} from "../services/userService";
 
 const STATUS_OPTIONS = [
-  { value: "", label: "All Status" },
-  { value: "ACTIVE", label: "Active" },
-  { value: "INACTIVE", label: "Inactive" },
+  {
+    value: "",
+    label: "All Status",
+  },
+  {
+    value: "ACTIVE",
+    label: "Active",
+  },
+  {
+    value: "INACTIVE",
+    label: "Inactive",
+  },
   {
     value: "PENDING_VERIFICATION",
     label: "Pending Verification",
   },
-  { value: "SUSPENDED", label: "Suspended" },
-  { value: "BLOCKED", label: "Blocked" },
+  {
+    value: "SUSPENDED",
+    label: "Suspended",
+  },
+  {
+    value: "BLOCKED",
+    label: "Blocked",
+  },
 ];
 
-/* -----------------------------
-   Response Helpers
------------------------------ */
-
-function getUsersFromResponse(response) {
+function extractUsers(response) {
   const body = response?.data;
+
+  if (Array.isArray(body)) {
+    return body;
+  }
 
   if (Array.isArray(body?.data)) {
     return body.data;
@@ -26,10 +54,6 @@ function getUsersFromResponse(response) {
 
   if (Array.isArray(body?.data?.data)) {
     return body.data.data;
-  }
-
-  if (Array.isArray(body?.data?.items)) {
-    return body.data.items;
   }
 
   if (Array.isArray(body?.data?.users)) {
@@ -40,41 +64,44 @@ function getUsersFromResponse(response) {
     return body.users;
   }
 
-  if (Array.isArray(body)) {
-    return body;
+  if (Array.isArray(body?.items)) {
+    return body.items;
   }
 
   return [];
 }
 
-function getErrorMessage(error) {
-  const status = error?.response?.status;
-  const data = error?.response?.data;
+function extractRoles(response) {
+  const body = response?.data;
 
-  if (status === 403) {
-    return (
-      data?.message ||
-      "You do not have permission to view users. Required permission: user.view"
-    );
+  if (Array.isArray(body)) {
+    return body;
   }
 
-  if (status === 401) {
-    return "Your session has expired. Please login again.";
+  if (Array.isArray(body?.data)) {
+    return body.data;
   }
 
-  return (
-    data?.message ||
-    error?.message ||
-    "Unable to load users."
-  );
+  if (Array.isArray(body?.data?.data)) {
+    return body.data.data;
+  }
+
+  if (Array.isArray(body?.data?.roles)) {
+    return body.data.roles;
+  }
+
+  if (Array.isArray(body?.roles)) {
+    return body.roles;
+  }
+
+  return [];
 }
 
 function getUserId(user) {
   return (
     user?.id ||
     user?.userId ||
-    user?.uuid ||
-    "-"
+    user?.uuid
   );
 }
 
@@ -96,119 +123,124 @@ function getUserPhone(user) {
 }
 
 function getUserStatus(user) {
-  return user?.status || "UNKNOWN";
+  return (
+    user?.status ||
+    "UNKNOWN"
+  );
 }
 
 function getUserRoles(user) {
-  if (Array.isArray(user?.roles)) {
-    return user.roles
-      .map((item) => {
-        if (typeof item === "string") {
-          return item;
-        }
-
-        return (
-          item?.role?.name ||
-          item?.name ||
-          item?.roleName ||
-          item?.role?.slug
-        );
-      })
-      .filter(Boolean);
-  }
-
-  if (user?.role) {
-    if (typeof user.role === "string") {
-      return [user.role];
-    }
-
-    return [
-      user.role?.name ||
-        user.role?.slug ||
-        user.roleName,
-    ].filter(Boolean);
+  if (
+    Array.isArray(user?.roles)
+  ) {
+    return user.roles;
   }
 
   return [];
 }
 
-/* -----------------------------
-   Users Page
------------------------------ */
+function getErrorMessage(error) {
+  return (
+    error?.response?.data
+      ?.message ||
+    error?.response?.data
+      ?.error ||
+    error?.message ||
+    "Something went wrong."
+  );
+}
 
 export default function Users() {
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] =
+    useState([]);
 
-  const [status, setStatus] = useState("");
+  const [roles, setRoles] =
+    useState([]);
 
-  // Initial page loading
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
 
-  // Refresh button loading
-  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] =
+    useState(false);
 
-  const [error, setError] = useState("");
+  const [deletingId, setDeletingId] =
+    useState(null);
 
-  const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] =
+    useState(false);
 
-  /* -----------------------------
-     Load Users
-  ----------------------------- */
+  const [error, setError] =
+    useState("");
+
+  const [search, setSearch] =
+    useState("");
+
+  const [status, setStatus] =
+    useState("");
+
+  const [modalOpen, setModalOpen] =
+    useState(false);
+
+  const [selectedUser, setSelectedUser] =
+    useState(null);
+
+  const [toast, setToast] =
+    useState(null);
+
+  /* =========================
+     TOAST
+  ========================= */
+
+  const showToast = (
+    message,
+    type = "success"
+  ) => {
+    setToast({
+      message,
+      type,
+    });
+
+    setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  };
+
+  /* =========================
+     LOAD USERS
+  ========================= */
 
   const loadUsers = useCallback(
-    async (showRefresh = false) => {
+    async (refresh = false) => {
       try {
         setError("");
 
-        if (showRefresh) {
+        if (refresh) {
           setRefreshing(true);
         } else {
           setLoading(true);
         }
 
-        const params = {};
+        const response =
+          await getUsers(
+            status
+              ? { status }
+              : {}
+          );
 
-        if (status) {
-          params.status = status;
-        }
-
-        console.log(
-          "GET USERS PARAMS:",
-          params
+        setUsers(
+          extractUsers(response)
         );
-
-        const response = await api.get(
-          "/users",
-          {
-            params,
-          }
-        );
-
-        console.log(
-          "USERS FULL RESPONSE:",
-          response
-        );
-
-        const list =
-          getUsersFromResponse(response);
-
-        console.log(
-          "USERS LIST:",
-          list
-        );
-
-        setUsers(list);
       } catch (error) {
         console.error(
-          "USERS ERROR:",
+          "GET USERS ERROR:",
           error
         );
-
-        setUsers([]);
 
         setError(
           getErrorMessage(error)
         );
+
+        setUsers([]);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -217,109 +249,270 @@ export default function Users() {
     [status]
   );
 
-  /* -----------------------------
-     Initial Load
-  ----------------------------- */
+  /* =========================
+     LOAD ROLES
+  ========================= */
+
+  const loadRoles =
+    useCallback(async () => {
+      try {
+        const response =
+          await getRoles();
+
+        setRoles(
+          extractRoles(response)
+        );
+      } catch (error) {
+        console.error(
+          "GET ROLES ERROR:",
+          error
+        );
+
+        setRoles([]);
+      }
+    }, []);
 
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
 
-  /* -----------------------------
-     Search
-  ----------------------------- */
+  useEffect(() => {
+    loadRoles();
+  }, [loadRoles]);
 
-  const filteredUsers = users.filter(
-    (user) => {
-      const searchText =
-        search.toLowerCase().trim();
+  /* =========================
+     CREATE / UPDATE
+  ========================= */
 
-      if (!searchText) {
+  const handleSaveUser =
+    async (payload) => {
+      try {
+        setSaving(true);
+
+        if (selectedUser) {
+          const id =
+            getUserId(
+              selectedUser
+            );
+
+          await updateUser(
+            id,
+            payload
+          );
+
+          showToast(
+            "User updated successfully."
+          );
+        } else {
+          await createUser(
+            payload
+          );
+
+          showToast(
+            "User created successfully."
+          );
+        }
+
+        setModalOpen(false);
+        setSelectedUser(null);
+
+        await loadUsers(true);
+      } catch (error) {
+        console.error(
+          "SAVE USER ERROR:",
+          error
+        );
+
+        showToast(
+          getErrorMessage(error),
+          "error"
+        );
+      } finally {
+        setSaving(false);
+      }
+    };
+
+  /* =========================
+     DELETE
+  ========================= */
+
+  const handleDeleteUser =
+    async (user) => {
+      const id =
+        getUserId(user);
+
+      const confirmed =
+        window.confirm(
+          `Are you sure you want to delete ${getUserName(
+            user
+          )}?`
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        setDeletingId(id);
+
+        await deleteUser(id);
+
+        showToast(
+          "User deleted successfully."
+        );
+
+        await loadUsers(true);
+      } catch (error) {
+        console.error(
+          "DELETE USER ERROR:",
+          error
+        );
+
+        showToast(
+          getErrorMessage(error),
+          "error"
+        );
+      } finally {
+        setDeletingId(null);
+      }
+    };
+
+  /* =========================
+     FILTER
+  ========================= */
+
+  const filteredUsers =
+    users.filter((user) => {
+      const text =
+        search
+          .toLowerCase()
+          .trim();
+
+      if (!text) {
         return true;
       }
 
-      const name =
-        getUserName(user).toLowerCase();
-
-      const email =
-        getUserEmail(user).toLowerCase();
-
-      const phone =
-        getUserPhone(user).toLowerCase();
-
       return (
-        name.includes(searchText) ||
-        email.includes(searchText) ||
-        phone.includes(searchText)
+        getUserName(user)
+          .toLowerCase()
+          .includes(text) ||
+        getUserEmail(user)
+          .toLowerCase()
+          .includes(text) ||
+        getUserPhone(user)
+          .toLowerCase()
+          .includes(text)
       );
-    }
-  );
+    });
 
-  /* -----------------------------
-     UI
-  ----------------------------- */
+  /* =========================
+     OPEN CREATE
+  ========================= */
+
+  const openCreateModal =
+    () => {
+      setSelectedUser(null);
+      setModalOpen(true);
+    };
+
+  /* =========================
+     OPEN EDIT
+  ========================= */
+
+  const openEditModal =
+    (user) => {
+      setSelectedUser(user);
+      setModalOpen(true);
+    };
 
   return (
     <div className="users-page">
 
-      {/* Header */}
+      {/* TOAST */}
+
+      {toast && (
+        <div
+          className={`toast toast-${toast.type}`}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* HEADER */}
+
       <div className="users-header">
 
         <div>
           <h1>Users</h1>
 
           <p>
-            Manage users and their roles.
+            Manage users and
+            their roles.
           </p>
         </div>
 
-        <button
-          className="refresh-btn"
-          onClick={() =>
-            loadUsers(true)
-          }
-          disabled={
-            loading || refreshing
-          }
-        >
-          {refreshing
-            ? "Refreshing..."
-            : "Refresh"}
-        </button>
+        <div className="users-actions">
 
-      </div>
-
-      {/* Filters */}
-      <div className="users-toolbar">
-
-        <div className="search-wrapper">
-
-          <input
-            type="text"
-            placeholder="Search name, email or phone..."
-            value={search}
-            onChange={(e) =>
-              setSearch(
-                e.target.value
-              )
+          <button
+            className="secondary-btn"
+            onClick={() =>
+              loadUsers(true)
             }
-          />
+            disabled={
+              loading ||
+              refreshing
+            }
+          >
+            {refreshing
+              ? "Refreshing..."
+              : "Refresh"}
+          </button>
+
+          <button
+            className="primary-btn"
+            onClick={
+              openCreateModal
+            }
+          >
+            + Add User
+          </button>
 
         </div>
 
+      </div>
+
+      {/* FILTERS */}
+
+      <div className="users-toolbar">
+
+        <input
+          type="text"
+          placeholder="Search name, email or phone..."
+          value={search}
+          onChange={(event) =>
+            setSearch(
+              event.target.value
+            )
+          }
+        />
+
         <select
           value={status}
-          onChange={(e) =>
+          onChange={(event) =>
             setStatus(
-              e.target.value
+              event.target.value
             )
           }
         >
           {STATUS_OPTIONS.map(
             (item) => (
               <option
-                key={item.value}
-                value={item.value}
+                key={
+                  item.value
+                }
+                value={
+                  item.value
+                }
               >
                 {item.label}
               </option>
@@ -329,7 +522,8 @@ export default function Users() {
 
       </div>
 
-      {/* Error */}
+      {/* ERROR */}
+
       {error && (
         <div className="users-error">
 
@@ -354,7 +548,8 @@ export default function Users() {
         </div>
       )}
 
-      {/* Loading */}
+      {/* LOADING */}
+
       {loading && (
         <div className="users-card">
 
@@ -375,223 +570,264 @@ export default function Users() {
         </div>
       )}
 
-      {/* Table */}
-      {!loading && !error && (
-        <div className="users-card">
+      {/* TABLE */}
 
-          <div className="users-card-header">
+      {!loading &&
+        !error && (
+          <div className="users-card">
 
-            <div>
+            <div className="users-card-header">
 
-              <h2>
-                All Users
-              </h2>
+              <div>
+                <h2>
+                  All Users
+                </h2>
 
-              <span>
-                {filteredUsers.length} user
-                {filteredUsers.length !==
-                1
-                  ? "s"
-                  : ""}
-              </span>
-
-            </div>
-
-          </div>
-
-          {/* Empty State */}
-          {filteredUsers.length ===
-          0 ? (
-            <div className="empty-users">
-
-              <div className="empty-icon">
-                👥
+                <span>
+                  {
+                    filteredUsers.length
+                  } users
+                </span>
               </div>
 
-              <h3>
-                No users found
-              </h3>
-
-              <p>
-                {search
-                  ? "No users match your search."
-                  : "There are no users available for this filter."}
-              </p>
-
             </div>
-          ) : (
 
-            /* Users Table */
-            <div className="table-container">
+            {filteredUsers.length ===
+            0 ? (
+              <div className="empty-users">
 
-              <table className="users-table">
+                <h3>
+                  No users found
+                </h3>
 
-                <thead>
+                <p>
+                  No users match
+                  your current
+                  filters.
+                </p>
 
-                  <tr>
+              </div>
+            ) : (
+              <div className="table-container">
 
-                    <th>
-                      User
-                    </th>
+                <table className="users-table">
 
-                    <th>
-                      Phone
-                    </th>
+                  <thead>
+                    <tr>
+                      <th>
+                        User
+                      </th>
 
-                    <th>
-                      Role
-                    </th>
+                      <th>
+                        Phone
+                      </th>
 
-                    <th>
-                      Status
-                    </th>
+                      <th>
+                        Roles
+                      </th>
 
-                    <th>
-                      User ID
-                    </th>
+                      <th>
+                        Status
+                      </th>
 
-                  </tr>
+                      <th>
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
 
-                </thead>
+                  <tbody>
 
-                <tbody>
+                    {filteredUsers.map(
+                      (user) => {
 
-                  {filteredUsers.map(
-                    (user, index) => {
+                        const id =
+                          getUserId(
+                            user
+                          );
 
-                      const roles =
-                        getUserRoles(
-                          user
-                        );
+                        const userRoles =
+                          getUserRoles(
+                            user
+                          );
 
-                      const userStatus =
-                        getUserStatus(
-                          user
-                        );
+                        return (
+                          <tr
+                            key={id}
+                          >
 
-                      return (
-                        <tr
-                          key={
-                            user?.id ||
-                            user?.uuid ||
-                            user?.userId ||
-                            index
-                          }
-                        >
+                            <td>
 
-                          {/* User */}
-                          <td>
+                              <div className="user-cell">
 
-                            <div className="user-cell">
-
-                              <div className="user-avatar">
-
-                                {getUserName(
-                                  user
-                                )
-                                  .charAt(
-                                    0
-                                  )
-                                  .toUpperCase()}
-
-                              </div>
-
-                              <div>
-
-                                <strong>
+                                <div className="user-avatar">
                                   {getUserName(
                                     user
-                                  )}
-                                </strong>
+                                  )
+                                    .charAt(
+                                      0
+                                    )
+                                    .toUpperCase()}
+                                </div>
 
-                                <span>
-                                  {getUserEmail(
-                                    user
-                                  )}
-                                </span>
+                                <div>
+
+                                  <strong>
+                                    {getUserName(
+                                      user
+                                    )}
+                                  </strong>
+
+                                  <span>
+                                    {getUserEmail(
+                                      user
+                                    )}
+                                  </span>
+
+                                </div>
 
                               </div>
 
-                            </div>
+                            </td>
 
-                          </td>
+                            <td>
+                              {getUserPhone(
+                                user
+                              )}
+                            </td>
 
-                          {/* Phone */}
-                          <td>
-                            {getUserPhone(
-                              user
-                            )}
-                          </td>
+                            <td>
 
-                          {/* Role */}
-                          <td>
-
-                            <div className="role-list">
-
-                              {roles.length >
+                              {userRoles.length >
                               0 ? (
-                                roles.map(
-                                  (
-                                    role,
-                                    roleIndex
-                                  ) => (
-                                    <span
-                                      className="role-badge"
-                                      key={`${role}-${roleIndex}`}
-                                    >
-                                      {role}
-                                    </span>
-                                  )
-                                )
+                                <div className="role-list">
+
+                                  {userRoles.map(
+                                    (
+                                      role,
+                                      index
+                                    ) => (
+                                      <span
+                                        className="role-badge"
+                                        key={
+                                          index
+                                        }
+                                      >
+                                        {typeof role ===
+                                        "string"
+                                          ? role
+                                          : role?.name ||
+                                            role?.roleName ||
+                                            role?.slug ||
+                                            `Role ${
+                                              role?.id ||
+                                              ""
+                                            }`}
+                                      </span>
+                                    )
+                                  )}
+
+                                </div>
                               ) : (
-                                <span className="muted">
+                                <span>
                                   No role
                                 </span>
                               )}
 
-                            </div>
+                            </td>
 
-                          </td>
+                            <td>
 
-                          {/* Status */}
-                          <td>
+                              <span className="status-badge">
+                                {getUserStatus(
+                                  user
+                                ).replaceAll(
+                                  "_",
+                                  " "
+                                )}
+                              </span>
 
-                            <span
-                              className={`status-badge status-${userStatus.toLowerCase()}`}
-                            >
-                              {userStatus.replaceAll(
-                                "_",
-                                " "
-                              )}
-                            </span>
+                            </td>
 
-                          </td>
+                            <td>
 
-                          {/* User ID */}
-                          <td>
+                              <div className="table-actions">
 
-                            <span className="user-id">
-                              {getUserId(
-                                user
-                              )}
-                            </span>
+                                <button
+                                  className="edit-btn"
+                                  onClick={() =>
+                                    openEditModal(
+                                      user
+                                    )
+                                  }
+                                >
+                                  Edit
+                                </button>
 
-                          </td>
+                                <button
+                                  className="delete-btn"
+                                  onClick={() =>
+                                    handleDeleteUser(
+                                      user
+                                    )
+                                  }
+                                  disabled={
+                                    deletingId ===
+                                    id
+                                  }
+                                >
+                                  {deletingId ===
+                                  id
+                                    ? "Deleting..."
+                                    : "Delete"}
+                                </button>
 
-                        </tr>
-                      );
-                    }
-                  )}
+                              </div>
 
-                </tbody>
+                            </td>
 
-              </table>
+                          </tr>
+                        );
+                      }
+                    )}
 
-            </div>
-          )}
+                  </tbody>
 
-        </div>
-      )}
+                </table>
+
+              </div>
+            )}
+
+          </div>
+        )}
+
+      {/* MODAL */}
+
+      <UserModal
+        open={
+          modalOpen
+        }
+        user={
+          selectedUser
+        }
+        roles={roles}
+        loading={
+          saving
+        }
+        onClose={() => {
+          if (!saving) {
+            setModalOpen(
+              false
+            );
+            setSelectedUser(
+              null
+            );
+          }
+        }}
+        onSubmit={
+          handleSaveUser
+        }
+      />
 
     </div>
   );
