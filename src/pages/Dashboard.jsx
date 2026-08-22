@@ -1,280 +1,504 @@
-import { useEffect, useState } from "react";
-import { getDashboard } from "../services/dashboardService";
+import React, { useCallback, useEffect, useState } from "react";
+import api from "../services/api";
 import "./Dashboard.css";
+
+/* =========================================================
+   DEFAULT DASHBOARD DATA
+========================================================= */
+
+const EMPTY_DASHBOARD = {
+  totalUsers: 0,
+  totalVendors: 0,
+  pendingVendors: 0,
+  approvedVendors: 0,
+  totalProducts: 0,
+  pendingProducts: 0,
+  totalOrders: 0,
+};
+
+/* =========================================================
+   NUMBER HELPER
+========================================================= */
+
+const toNumber = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
+  const number = Number(value);
+
+  return Number.isNaN(number) ? 0 : number;
+};
+
+/* =========================================================
+   FIND VALUE FROM OBJECT
+========================================================= */
+
+const findValue = (object, keys = []) => {
+  if (!object || typeof object !== "object") {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    if (
+      object[key] !== undefined &&
+      object[key] !== null
+    ) {
+      return object[key];
+    }
+  }
+
+  return undefined;
+};
+
+/* =========================================================
+   EXTRACT DASHBOARD DATA
+========================================================= */
+
+const extractDashboard = (response) => {
+  const body = response?.data || {};
+
+  /*
+    Common API response:
+
+    {
+      success: true,
+      data: {
+        totalUsers: 17,
+        totalVendors: 4,
+        ...
+      }
+    }
+  */
+
+  const data =
+    body?.data ||
+    body?.dashboard ||
+    body?.result ||
+    body;
+
+  if (!data || typeof data !== "object") {
+    return EMPTY_DASHBOARD;
+  }
+
+  return {
+    totalUsers: toNumber(
+      findValue(data, [
+        "totalUsers",
+        "users",
+        "userCount",
+        "totalUser",
+      ])
+    ),
+
+    totalVendors: toNumber(
+      findValue(data, [
+        "totalVendors",
+        "vendors",
+        "vendorCount",
+        "totalVendor",
+      ])
+    ),
+
+    pendingVendors: toNumber(
+      findValue(data, [
+        "pendingVendors",
+        "pendingVendor",
+        "vendorsPending",
+        "pendingVendorsCount",
+      ])
+    ),
+
+    approvedVendors: toNumber(
+      findValue(data, [
+        "approvedVendors",
+        "approvedVendor",
+        "vendorsApproved",
+        "approvedVendorsCount",
+      ])
+    ),
+
+    totalProducts: toNumber(
+      findValue(data, [
+        "totalProducts",
+        "products",
+        "productCount",
+        "totalProduct",
+      ])
+    ),
+
+    pendingProducts: toNumber(
+      findValue(data, [
+        "pendingProducts",
+        "pendingProduct",
+        "productsPending",
+        "pendingProductsCount",
+      ])
+    ),
+
+    totalOrders: toNumber(
+      findValue(data, [
+        "totalOrders",
+        "orders",
+        "orderCount",
+        "totalOrder",
+      ])
+    ),
+  };
+};
+
+/* =========================================================
+   EXTRACT RECENT ORDERS
+========================================================= */
+
+const extractRecentOrders = (response) => {
+  const body = response?.data || {};
+
+  const data =
+    body?.data ||
+    body?.dashboard ||
+    body?.result ||
+    body;
+
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+
+  /*
+    Different possible backend structures are supported.
+
+    data.recentOrders
+    data.recent_orders
+    data.orders
+    data.latestOrders
+    data.latest_orders
+  */
+
+  const possibleOrders = [
+    data?.recentOrders,
+    data?.recent_orders,
+    data?.latestOrders,
+    data?.latest_orders,
+    data?.orders,
+  ];
+
+  for (const orders of possibleOrders) {
+    if (Array.isArray(orders)) {
+      return orders.slice(0, 5);
+    }
+  }
+
+  return [];
+};
+
+/* =========================================================
+   FORMAT CURRENCY
+========================================================= */
+
+const formatCurrency = (value) => {
+  const amount = toNumber(value);
+
+  return `₹${amount.toLocaleString("en-IN")}`;
+};
+
+/* =========================================================
+   FORMAT DATE
+========================================================= */
+
+const formatDate = (value) => {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+/* =========================================================
+   ORDER ID
+========================================================= */
+
+const getOrderId = (order) => {
+  return (
+    order?.orderNumber ||
+    order?.orderNo ||
+    order?.orderId ||
+    order?.id ||
+    order?._id ||
+    "-"
+  );
+};
+
+/* =========================================================
+   CUSTOMER NAME
+========================================================= */
+
+const getCustomerName = (order) => {
+  if (order?.customerName) {
+    return order.customerName;
+  }
+
+  if (order?.customer?.name) {
+    return order.customer.name;
+  }
+
+  if (order?.user?.name) {
+    return order.user.name;
+  }
+
+  if (order?.customer?.email) {
+    return order.customer.email;
+  }
+
+  if (order?.user?.email) {
+    return order.user.email;
+  }
+
+  return "Customer";
+};
+
+/* =========================================================
+   ORDER STATUS
+========================================================= */
+
+const getOrderStatus = (order) => {
+  return (
+    order?.status ||
+    order?.orderStatus ||
+    order?.paymentStatus ||
+    "Pending"
+  );
+};
+
+/* =========================================================
+   ORDER AMOUNT
+========================================================= */
+
+const getOrderAmount = (order) => {
+  return (
+    order?.totalAmount ??
+    order?.total ??
+    order?.amount ??
+    order?.grandTotal ??
+    order?.price ??
+    0
+  );
+};
+
+/* =========================================================
+   DASHBOARD COMPONENT
+========================================================= */
 
 export default function Dashboard() {
   const [dashboard, setDashboard] =
-    useState(null);
+    useState(EMPTY_DASHBOARD);
+
+  const [recentOrders, setRecentOrders] =
+    useState([]);
 
   const [loading, setLoading] =
     useState(true);
 
+  const [refreshing, setRefreshing] =
+    useState(false);
+
   const [error, setError] =
     useState("");
 
-  const loadDashboard = async () => {
-    try {
-      setLoading(true);
-      setError("");
+  /* =======================================================
+     LOAD DASHBOARD
+  ======================================================= */
 
-      const response =
-        await getDashboard();
+  const loadDashboard = useCallback(
+    async (isRefresh = false) => {
+      try {
+        setError("");
 
-      // Backend response:
-      // {
-      //   success: true,
-      //   data: {
-      //     totalUsers,
-      //     totalVendors,
-      //     pendingVendors,
-      //     approvedVendors,
-      //     totalProducts,
-      //     pendingProducts,
-      //     totalOrders
-      //   }
-      // }
+        if (isRefresh) {
+          setRefreshing(true);
+        } else {
+          setLoading(true);
+        }
 
-      const data =
-        response?.data ||
-        response;
+        console.log(
+          "========== DASHBOARD REQUEST =========="
+        );
 
-      setDashboard(data);
+        const response =
+          await api.get("/admin/dashboard");
 
-    } catch (error) {
-      console.error(
-        "DASHBOARD ERROR:",
-        error
-      );
+        console.log(
+          "DASHBOARD RESPONSE:",
+          response
+        );
 
-      setError(
-        error?.response?.data?.message ||
-          error?.response?.data?.error ||
-          "Unable to load dashboard."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+        /* -----------------------------------------------
+           KPI DATA
+        ------------------------------------------------ */
+
+        const dashboardData =
+          extractDashboard(response);
+
+        console.log(
+          "DASHBOARD KPI DATA:",
+          dashboardData
+        );
+
+        setDashboard({
+          ...EMPTY_DASHBOARD,
+          ...dashboardData,
+        });
+
+        /* -----------------------------------------------
+           RECENT ORDERS
+        ------------------------------------------------ */
+
+        const orders =
+          extractRecentOrders(response);
+
+        console.log(
+          "RECENT ORDERS:",
+          orders
+        );
+
+        setRecentOrders(orders);
+
+      } catch (err) {
+        console.error(
+          "DASHBOARD ERROR:",
+          err
+        );
+
+        const backendMessage =
+          err?.response?.data?.message;
+
+        if (Array.isArray(backendMessage)) {
+          setError(
+            backendMessage.join(", ")
+          );
+        } else {
+          setError(
+            backendMessage ||
+              err?.message ||
+              "Unable to load dashboard."
+          );
+        }
+
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    []
+  );
+
+  /* =======================================================
+     INITIAL LOAD
+  ======================================================= */
 
   useEffect(() => {
     loadDashboard();
-  }, []);
+  }, [loadDashboard]);
 
-  /* =========================
-     LOADING
-  ========================= */
-
-  if (loading) {
-    return (
-      <div className="dashboard-page">
-
-        <div className="dashboard-header">
-          <div>
-            <div className="skeleton title-skeleton"></div>
-            <div className="skeleton subtitle-skeleton"></div>
-          </div>
-
-          <div className="skeleton button-skeleton"></div>
-        </div>
-
-        <div className="dashboard-grid">
-
-          {Array.from({
-            length: 7,
-          }).map((_, index) => (
-            <div
-              className="dashboard-card skeleton-card"
-              key={index}
-            >
-              <div className="skeleton skeleton-label"></div>
-
-              <div className="skeleton skeleton-value"></div>
-
-              <div className="skeleton skeleton-description"></div>
-            </div>
-          ))}
-
-        </div>
-
-        <div className="dashboard-section">
-
-          <div className="section-header">
-            <div>
-              <div className="skeleton section-title-skeleton"></div>
-
-              <div className="skeleton section-subtitle-skeleton"></div>
-            </div>
-          </div>
-
-          <div className="orders-loading">
-
-            <div className="loading-spinner"></div>
-
-            <p>
-              Loading recent orders...
-            </p>
-
-          </div>
-
-        </div>
-
-      </div>
-    );
-  }
-
-  /* =========================
-     ERROR
-  ========================= */
-
-  if (error) {
-    return (
-      <div className="dashboard-page">
-
-        <div className="dashboard-error">
-
-          <div className="error-icon">
-            !
-          </div>
-
-          <h2>
-            Unable to load dashboard
-          </h2>
-
-          <p>
-            {error}
-          </p>
-
-          <button
-            className="refresh-button"
-            onClick={loadDashboard}
-          >
-            Try Again
-          </button>
-
-        </div>
-
-      </div>
-    );
-  }
-
-  /* =========================
-     EMPTY
-  ========================= */
-
-  if (!dashboard) {
-    return (
-      <div className="dashboard-page">
-
-        <div className="dashboard-empty">
-
-          <div className="empty-icon">
-            📊
-          </div>
-
-          <h2>
-            No dashboard data
-          </h2>
-
-          <p>
-            Dashboard information is
-            currently unavailable.
-          </p>
-
-          <button
-            className="refresh-button"
-            onClick={loadDashboard}
-          >
-            Refresh
-          </button>
-
-        </div>
-
-      </div>
-    );
-  }
-
-  /* =========================
+  /* =======================================================
      KPI CARDS
-  ========================= */
+  ======================================================= */
 
   const cards = [
     {
       title: "Total Users",
-      value:
-        dashboard.totalUsers ?? 0,
-      description:
-        "Registered users",
+      value: dashboard.totalUsers,
+      subtitle: "Registered users",
+      icon: "👥",
       className: "blue",
     },
-
     {
       title: "Total Vendors",
-      value:
-        dashboard.totalVendors ?? 0,
-      description:
-        "Marketplace vendors",
+      value: dashboard.totalVendors,
+      subtitle: "Marketplace vendors",
+      icon: "🏪",
       className: "purple",
     },
-
     {
       title: "Pending Vendors",
-      value:
-        dashboard.pendingVendors ?? 0,
-      description:
-        "Awaiting approval",
+      value: dashboard.pendingVendors,
+      subtitle: "Awaiting approval",
+      icon: "⏳",
       className: "orange",
     },
-
     {
       title: "Approved Vendors",
-      value:
-        dashboard.approvedVendors ?? 0,
-      description:
-        "Approved vendors",
+      value: dashboard.approvedVendors,
+      subtitle: "Approved vendors",
+      icon: "✓",
       className: "green",
     },
-
     {
       title: "Total Products",
-      value:
-        dashboard.totalProducts ?? 0,
-      description:
-        "Products in marketplace",
+      value: dashboard.totalProducts,
+      subtitle: "Products in marketplace",
+      icon: "📦",
       className: "cyan",
     },
-
     {
       title: "Pending Products",
-      value:
-        dashboard.pendingProducts ?? 0,
-      description:
-        "Awaiting approval",
+      value: dashboard.pendingProducts,
+      subtitle: "Awaiting approval",
+      icon: "⏳",
       className: "yellow",
     },
-
     {
       title: "Total Orders",
-      value:
-        dashboard.totalOrders ?? 0,
-      description:
-        "Marketplace orders",
+      value: dashboard.totalOrders,
+      subtitle: "Marketplace orders",
+      icon: "🛒",
       className: "pink",
     },
   ];
 
+  /* =======================================================
+     LOADING
+  ======================================================= */
+
+  if (loading) {
+    return (
+      <div className="dashboard-page">
+        <div className="dashboard-loading">
+          <div className="loading-spinner"></div>
+          <p>Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* =======================================================
+     UI
+  ======================================================= */
+
   return (
     <div className="dashboard-page">
 
-      {/* =========================
+      {/* =================================================
           HEADER
-      ========================= */}
+      ================================================= */}
 
       <div className="dashboard-header">
 
         <div>
-          <h1>
-            Dashboard
-          </h1>
+          <span className="dashboard-label">
+            ADMIN DASHBOARD
+          </span>
+
+          <h1>Dashboard</h1>
 
           <p>
             Marketplace overview
@@ -282,54 +506,85 @@ export default function Dashboard() {
         </div>
 
         <button
+          type="button"
           className="refresh-button"
-          onClick={loadDashboard}
+          onClick={() => loadDashboard(true)}
+          disabled={refreshing}
         >
-          ↻ Refresh
+          {refreshing
+            ? "Refreshing..."
+            : "↻ Refresh"}
         </button>
 
       </div>
 
-      {/* =========================
-          KPI CARDS
-      ========================= */}
+      {/* =================================================
+          ERROR
+      ================================================= */}
 
-      <div className="dashboard-grid">
+      {error && (
+        <div className="dashboard-error">
+
+          <div>
+            <strong>
+              Unable to load dashboard
+            </strong>
+
+            <p>{error}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => loadDashboard(true)}
+          >
+            Retry
+          </button>
+
+        </div>
+      )}
+
+      {/* =================================================
+          KPI CARDS
+      ================================================= */}
+
+      <section className="kpi-grid">
 
         {cards.map((card) => (
-          <div
-            className={`dashboard-card ${card.className}`}
+          <article
             key={card.title}
+            className={`kpi-card ${card.className}`}
           >
 
-            <div className="card-top">
+            <div className="kpi-top">
 
-              <span className="card-title">
+              <h3>
                 {card.title}
-              </span>
+              </h3>
 
-              <span className="card-dot"></span>
+              <span className="kpi-icon">
+                {card.icon}
+              </span>
 
             </div>
 
-            <div className="card-value">
+            <div className="kpi-value">
               {card.value}
             </div>
 
-            <div className="card-description">
-              {card.description}
-            </div>
+            <p>
+              {card.subtitle}
+            </p>
 
-          </div>
+          </article>
         ))}
 
-      </div>
+      </section>
 
-      {/* =========================
+      {/* =================================================
           RECENT ORDERS
-      ========================= */}
+      ================================================= */}
 
-      <div className="dashboard-section">
+      <section className="orders-section">
 
         <div className="section-header">
 
@@ -345,26 +600,125 @@ export default function Dashboard() {
 
         </div>
 
-        <div className="orders-empty">
+        {recentOrders.length > 0 ? (
+          <div className="orders-table-wrapper">
 
-          <div className="empty-icon">
-            🛒
+            <table className="orders-table">
+
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Customer</th>
+                  <th>Status</th>
+                  <th>Amount</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+
+              <tbody>
+
+                {recentOrders.map(
+                  (order, index) => {
+
+                    const status =
+                      getOrderStatus(order);
+
+                    return (
+                      <tr
+                        key={
+                          order?.id ||
+                          order?._id ||
+                          index
+                        }
+                      >
+
+                        <td>
+                          <span className="order-id">
+                            #{getOrderId(order)}
+                          </span>
+                        </td>
+
+                        <td>
+                          <div className="customer-cell">
+                            <span className="customer-avatar">
+                              {getCustomerName(
+                                order
+                              )
+                                .charAt(0)
+                                .toUpperCase()}
+                            </span>
+
+                            <span>
+                              {getCustomerName(
+                                order
+                              )}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <span
+                            className={`status-badge ${String(
+                              status
+                            )
+                              .toLowerCase()
+                              .replace(
+                                /\s+/g,
+                                "-"
+                              )}`}
+                          >
+                            {status}
+                          </span>
+                        </td>
+
+                        <td>
+                          <strong>
+                            {formatCurrency(
+                              getOrderAmount(
+                                order
+                              )
+                            )}
+                          </strong>
+                        </td>
+
+                        <td>
+                          {formatDate(
+                            order?.createdAt ||
+                              order?.created_at ||
+                              order?.date
+                          )}
+                        </td>
+
+                      </tr>
+                    );
+                  }
+                )}
+
+              </tbody>
+
+            </table>
+
           </div>
+        ) : (
+          <div className="empty-orders">
 
-          <h3>
-            Recent orders unavailable
-          </h3>
+            <div className="empty-orders-icon">
+              🛒
+            </div>
 
-          <p>
-            The current dashboard API
-            provides the total order count,
-            but does not return a recent
-            orders list.
-          </p>
+            <h3>
+              No recent orders
+            </h3>
 
-        </div>
+            <p>
+              No recent order data is available
+              from the dashboard API.
+            </p>
 
-      </div>
+          </div>
+        )}
+
+      </section>
 
     </div>
   );

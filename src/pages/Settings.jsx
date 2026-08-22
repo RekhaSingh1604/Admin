@@ -1,1271 +1,1327 @@
-import { useEffect, useState } from "react";
-import "../styles/settings.css";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   getSettingsSidebar,
   getSettingsGroup,
-  updateSettingsGroup,
   getSettings,
   createSetting,
   updateSetting,
   deleteSetting,
-  getSettingCategories,
-  createSettingCategory,
-  updateSettingCategory,
-  deleteSettingCategory,
 } from "../services/settingsService";
 
+import '../styles/settings.css'
+
+
+// ======================================================
+// TOAST COMPONENT
+// ======================================================
+
+function Toast({
+  toast,
+  onClose,
+}) {
+  if (!toast) return null;
+
+  return (
+    <div
+      className={`settings-toast ${toast.type}`}
+    >
+      <div className="toast-icon">
+        {toast.type === "success"
+          ? "✓"
+          : toast.type === "error"
+          ? "!"
+          : "i"}
+      </div>
+
+      <div className="toast-content">
+        <strong>
+          {toast.type === "success"
+            ? "Success"
+            : toast.type === "error"
+            ? "Error"
+            : "Info"}
+        </strong>
+
+        <span>
+          {toast.message}
+        </span>
+      </div>
+
+      <button
+        onClick={onClose}
+        className="toast-close"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+
+// ======================================================
+// INITIAL FORM
+// ======================================================
+
+const initialForm = {
+  categoryUuid: "",
+  key: "",
+  label: "",
+  group: "",
+  description: "",
+  value: "",
+  defaultValue: "",
+  type: "STRING",
+
+  validation: {
+    required: false,
+    min: "",
+    max: "",
+    minLength: "",
+    maxLength: "",
+  },
+
+  options: {
+    values: [],
+  },
+
+  isEncrypted: false,
+  isPublic: false,
+  isEditable: true,
+  sortOrder: 0,
+};
+
+
+// ======================================================
+// MAIN COMPONENT
+// ======================================================
+
 export default function Settings() {
-  // =========================
-  // SIDEBAR / GROUP
-  // =========================
 
-  const [categories, setCategories] = useState([]);
-  const [selectedSlug, setSelectedSlug] = useState("");
+  // ====================================================
+  // STATES
+  // ====================================================
 
-  const [settings, setSettings] = useState({});
-  const [categoryInfo, setCategoryInfo] = useState(null);
+  const [categories, setCategories] =
+    useState([]);
 
-  const [loadingCategories, setLoadingCategories] = useState(true);
-  const [loadingSettings, setLoadingSettings] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [settings, setSettings] =
+    useState([]);
 
-  // =========================
-  // CRUD DATA
-  // =========================
+  const [selectedSlug, setSelectedSlug] =
+    useState("");
 
-  const [allSettings, setAllSettings] = useState([]);
-  const [allCategories, setAllCategories] = useState([]);
+  const [loading, setLoading] =
+    useState(false);
 
-  const [loadingCrud, setLoadingCrud] = useState(false);
+  const [saving, setSaving] =
+    useState(false);
 
-  // =========================
-  // UI
-  // =========================
+  const [deleting, setDeleting] =
+    useState(false);
 
-  const [activePanel, setActivePanel] = useState("settings");
+  const [modalOpen, setModalOpen] =
+    useState(false);
 
-  const [showSettingModal, setShowSettingModal] = useState(false);
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [editingSetting, setEditingSetting] =
+    useState(null);
 
-  const [editingSetting, setEditingSetting] = useState(null);
-  const [editingCategory, setEditingCategory] = useState(null);
+  const [form, setForm] =
+    useState(initialForm);
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [toast, setToast] =
+    useState(null);
 
-  // =========================
-  // SETTING FORM
-  // =========================
 
-  const [settingForm, setSettingForm] = useState({
-    key: "",
-    value: "",
-    category: "",
-  });
+  // ====================================================
+  // TOAST HELPER
+  // ====================================================
 
-  // =========================
-  // CATEGORY FORM
-  // =========================
+  const showToast = (
+    type,
+    message
+  ) => {
 
-  const [categoryForm, setCategoryForm] = useState({
-    name: "",
-    slug: "",
-    icon: "",
-    sortOrder: 1,
-  });
+    setToast({
+      type,
+      message,
+    });
 
-  // =========================
-  // HELPERS
-  // =========================
-
-  const clearMessages = () => {
-    setError("");
-    setSuccess("");
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
   };
 
-  const getErrorMessage = (err, fallback) => {
-    return (
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      fallback
-    );
+
+  // ====================================================
+  // ERROR MESSAGE HELPER
+  // ====================================================
+
+  const getErrorMessage = (
+    error
+  ) => {
+
+    const data =
+      error?.response?.data;
+
+    if (
+      Array.isArray(data?.message)
+    ) {
+      return data.message.join(
+        " "
+      );
+    }
+
+    if (
+      typeof data?.message ===
+      "string"
+    ) {
+      return data.message;
+    }
+
+    if (
+      typeof data?.error ===
+      "string"
+    ) {
+      return data.error;
+    }
+
+    if (
+      error?.message
+    ) {
+      return error.message;
+    }
+
+    return "Something went wrong.";
   };
 
-  const extractData = (response) => {
-    return (
-      response?.data?.data?.data ||
-      response?.data?.data ||
-      response?.data ||
-      []
-    );
-  };
 
-  // =========================
-  // LOAD SIDEBAR
-  // =========================
+  // ====================================================
+  // LOAD ALL DATA
+  // ====================================================
 
-  const loadCategories = async () => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+
+  const loadData = async () => {
+
+    setLoading(true);
+
     try {
-      setLoadingCategories(true);
-      clearMessages();
 
-      const response = await getSettingsSidebar();
+      // ----------------------------------------------
+      // 1. SIDEBAR
+      // ----------------------------------------------
+
+      const sidebarResponse =
+        await getSettingsSidebar();
 
       console.log(
-        "SETTINGS SIDEBAR:",
-        response.data
+        "GET SIDEBAR RESPONSE:",
+        sidebarResponse
       );
 
-      const data = extractData(response);
+      const sidebarPayload =
+        sidebarResponse?.data;
 
-      const list = Array.isArray(data)
-        ? data
-        : data?.categories || [];
+      console.log(
+        "SIDEBAR RAW RESPONSE:",
+        sidebarPayload
+      );
 
-      setCategories(list);
+      let sidebarCategories = [];
 
-      if (list.length > 0 && !selectedSlug) {
-        setSelectedSlug(list[0].slug);
+      if (
+        Array.isArray(
+          sidebarPayload?.data
+        )
+      ) {
+        sidebarCategories =
+          sidebarPayload.data;
       }
-    } catch (err) {
-      console.error(
-        "SETTINGS SIDEBAR ERROR:",
-        err
-      );
-
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to load settings categories."
-        )
-      );
-    } finally {
-      setLoadingCategories(false);
-    }
-  };
-
-  // =========================
-  // LOAD GROUP
-  // =========================
-
-  const loadGroup = async (slug) => {
-    if (!slug) return;
-
-    try {
-      setLoadingSettings(true);
-      clearMessages();
-
-      const response =
-        await getSettingsGroup(slug);
 
       console.log(
-        "SETTINGS GROUP:",
-        response.data
+        "EXTRACTED CATEGORIES:",
+        sidebarCategories
       );
 
-      const data = extractData(response);
 
-      setCategoryInfo(
-        data?.category || null
-      );
+      // ----------------------------------------------
+      // 2. ALL SETTINGS
+      // ----------------------------------------------
 
-      setSettings(
-        data?.values || {}
-      );
-    } catch (err) {
-      console.error(
-        "SETTINGS GROUP ERROR:",
-        err
-      );
-
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to load settings group."
-        )
-      );
-
-      setSettings({});
-    } finally {
-      setLoadingSettings(false);
-    }
-  };
-
-  // =========================
-  // LOAD CRUD SETTINGS
-  // =========================
-
-  const loadAllSettings = async () => {
-    try {
-      setLoadingCrud(true);
-
-      const response =
+      const settingsResponse =
         await getSettings();
 
       console.log(
-        "ALL SETTINGS:",
-        response.data
+        "ALL SETTINGS RESPONSE:",
+        settingsResponse
       );
 
-      const data = extractData(response);
+      const settingsPayload =
+        settingsResponse?.data;
 
-      const list = Array.isArray(data)
-        ? data
-        : data?.items ||
-          data?.settings ||
-          [];
-
-      setAllSettings(list);
-    } catch (err) {
-      console.error(
-        "ALL SETTINGS ERROR:",
-        err
-      );
-
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to load settings."
+      const allSettings =
+        Array.isArray(
+          settingsPayload?.data
         )
-      );
-    } finally {
-      setLoadingCrud(false);
-    }
-  };
-
-  // =========================
-  // LOAD CRUD CATEGORIES
-  // =========================
-
-  const loadAllCategories = async () => {
-    try {
-      setLoadingCrud(true);
-
-      const response =
-        await getSettingCategories();
+          ? settingsPayload.data
+          : [];
 
       console.log(
-        "ALL SETTING CATEGORIES:",
-        response.data
+        "ALL SETTINGS:",
+        allSettings
       );
 
-      const data = extractData(response);
 
-      const list = Array.isArray(data)
-        ? data
-        : data?.items ||
-          data?.categories ||
-          [];
-
-      setAllCategories(list);
-    } catch (err) {
-      console.error(
-        "ALL CATEGORIES ERROR:",
-        err
+      setSettings(
+        allSettings
       );
 
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to load setting categories."
+
+      // ----------------------------------------------
+      // 3. BUILD CATEGORY LIST
+      // ----------------------------------------------
+
+      const categoryMap =
+        new Map();
+
+
+      // First: sidebar categories
+      sidebarCategories.forEach(
+        (category) => {
+
+          if (
+            category?.slug
+          ) {
+
+            categoryMap.set(
+              category.slug,
+              {
+                slug:
+                  category.slug,
+
+                name:
+                  category.name ||
+                  category.slug,
+
+                icon:
+                  category.icon ||
+                  "settings",
+
+                sortOrder:
+                  category.sortOrder ||
+                  0,
+
+                uuid:
+                  category.uuid ||
+                  category.categoryUuid ||
+                  "",
+              }
+            );
+          }
+        }
+      );
+
+
+      // Second: get UUID from settings
+      allSettings.forEach(
+        (setting) => {
+
+          const category =
+            setting?.category;
+
+          if (
+            category?.slug
+          ) {
+
+            const old =
+              categoryMap.get(
+                category.slug
+              ) || {};
+
+            categoryMap.set(
+              category.slug,
+              {
+                ...old,
+
+                slug:
+                  category.slug,
+
+                name:
+                  category.name ||
+                  old.name ||
+                  category.slug,
+
+                icon:
+                  category.icon ||
+                  old.icon ||
+                  "settings",
+
+                sortOrder:
+                  category.sortOrder ??
+                  old.sortOrder ??
+                  0,
+
+                uuid:
+                  category.uuid ||
+                  old.uuid ||
+                  "",
+              }
+            );
+          }
+        }
+      );
+
+
+      const finalCategories =
+        Array.from(
+          categoryMap.values()
         )
-      );
-    } finally {
-      setLoadingCrud(false);
-    }
-  };
+        .sort(
+          (a, b) =>
+            a.sortOrder -
+            b.sortOrder
+        );
 
-  // =========================
-  // INITIAL LOAD
-  // =========================
 
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  useEffect(() => {
-    if (selectedSlug) {
-      loadGroup(selectedSlug);
-    }
-  }, [selectedSlug]);
-
-  // =========================
-  // CRUD PANEL LOAD
-  // =========================
-
-  useEffect(() => {
-    if (activePanel === "settings") {
-      loadAllSettings();
-    }
-
-    if (activePanel === "categories") {
-      loadAllCategories();
-    }
-  }, [activePanel]);
-
-  // =========================
-  // GROUP VALUE CHANGE
-  // =========================
-
-  const handleGroupChange = (
-    key,
-    value
-  ) => {
-    setSettings((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  // =========================
-  // SAVE GROUP
-  // =========================
-
-  const handleSaveGroup = async () => {
-    if (!selectedSlug) return;
-
-    try {
-      setSaving(true);
-      clearMessages();
-
-      await updateSettingsGroup(
-        selectedSlug,
-        settings
+      console.log(
+        "FINAL CATEGORY LIST:",
+        finalCategories
       );
 
-      setSuccess(
-        "Settings updated successfully."
+
+      setCategories(
+        finalCategories
       );
 
-      await loadGroup(selectedSlug);
-    } catch (err) {
+
+      // ----------------------------------------------
+      // SELECT FIRST CATEGORY
+      // ----------------------------------------------
+
+      if (
+        finalCategories.length > 0
+      ) {
+
+        const currentExists =
+          finalCategories.some(
+            (item) =>
+              item.slug ===
+              selectedSlug
+          );
+
+        if (
+          !selectedSlug ||
+          !currentExists
+        ) {
+          setSelectedSlug(
+            finalCategories[0].slug
+          );
+        }
+      }
+
+    } catch (error) {
+
       console.error(
-        "UPDATE GROUP ERROR:",
-        err
+        "SETTINGS LOAD ERROR:",
+        error
       );
 
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to update settings."
-        )
+      showToast(
+        "error",
+        getErrorMessage(error)
       );
+
     } finally {
-      setSaving(false);
+
+      setLoading(false);
     }
   };
 
-  // =========================
-  // SETTING MODAL
-  // =========================
 
-  const openCreateSetting = () => {
-    setEditingSetting(null);
+  // ====================================================
+  // GET CATEGORY UUID
+  // ====================================================
 
-    setSettingForm({
-      key: "",
-      value: "",
-      category:
-        selectedSlug || "",
-    });
+  const resolveCategoryUuid =
+    async (slug) => {
 
-    setShowSettingModal(true);
-    clearMessages();
-  };
+      // ----------------------------------------------
+      // FIRST: CHECK SETTINGS DATA
+      // ----------------------------------------------
 
-  const openEditSetting = (
-    setting
-  ) => {
-    setEditingSetting(setting);
-
-    setSettingForm({
-      key:
-        setting?.key ||
-        setting?.name ||
-        "",
-      value:
-        setting?.value ?? "",
-      category:
-        setting?.category ||
-        setting?.categorySlug ||
-        selectedSlug ||
-        "",
-    });
-
-    setShowSettingModal(true);
-    clearMessages();
-  };
-
-  const closeSettingModal = () => {
-    setShowSettingModal(false);
-    setEditingSetting(null);
-  };
-
-  const handleSettingSubmit = async (
-    event
-  ) => {
-    event.preventDefault();
-
-    if (!settingForm.key.trim()) {
-      setError("Setting key is required.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      clearMessages();
-
-      const payload = {
-        key: settingForm.key.trim(),
-        value: settingForm.value,
-        category: settingForm.category,
-      };
-
-      if (editingSetting) {
-        await updateSetting(
-          editingSetting.id ||
-            editingSetting.uuid,
-          payload
+      const existing =
+        settings.find(
+          (setting) =>
+            setting?.category
+              ?.slug === slug
         );
 
-        setSuccess(
-          "Setting updated successfully."
+      if (
+        existing?.category?.uuid
+      ) {
+
+        return existing
+          .category
+          .uuid;
+      }
+
+
+      // ----------------------------------------------
+      // SECOND: CHECK CATEGORY LIST
+      // ----------------------------------------------
+
+      const category =
+        categories.find(
+          (item) =>
+            item.slug === slug
         );
-      } else {
-        await createSetting(payload);
 
-        setSuccess(
-          "Setting created successfully."
-        );
+      if (
+        category?.uuid
+      ) {
+
+        return category.uuid;
       }
 
-      closeSettingModal();
 
-      await loadAllSettings();
-
-      if (selectedSlug) {
-        await loadGroup(selectedSlug);
-      }
-    } catch (err) {
-      console.error(
-        "SETTING SAVE ERROR:",
-        err
-      );
-
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to save setting."
-        )
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // =========================
-  // DELETE SETTING
-  // =========================
-
-  const handleDeleteSetting = async (
-    setting
-  ) => {
-    const id =
-      setting?.id ||
-      setting?.uuid;
-
-    if (!id) {
-      setError(
-        "Setting ID is missing."
-      );
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        `Delete setting "${
-          setting?.key ||
-          setting?.name ||
-          "this setting"
-        }"?`
-      );
-
-    if (!confirmed) return;
-
-    try {
-      setLoadingCrud(true);
-      clearMessages();
-
-      await deleteSetting(id);
-
-      setSuccess(
-        "Setting deleted successfully."
-      );
-
-      await loadAllSettings();
-
-      if (selectedSlug) {
-        await loadGroup(selectedSlug);
-      }
-    } catch (err) {
-      console.error(
-        "DELETE SETTING ERROR:",
-        err
-      );
-
-      setError(
-        getErrorMessage(
-          err,
-          "Unable to delete setting."
-        )
-      );
-    } finally {
-      setLoadingCrud(false);
-    }
-  };
-
-  // =========================
-  // CATEGORY MODAL
-  // =========================
-
-  const openCreateCategory = () => {
-    setEditingCategory(null);
-
-    setCategoryForm({
-      name: "",
-      slug: "",
-      icon: "",
-      sortOrder: 1,
-    });
-
-    setShowCategoryModal(true);
-    clearMessages();
-  };
-
-  const openEditCategory = (
-    category
-  ) => {
-    setEditingCategory(category);
-
-    setCategoryForm({
-      name:
-        category?.name || "",
-      slug:
-        category?.slug || "",
-      icon:
-        category?.icon || "",
-      sortOrder:
-        category?.sortOrder || 1,
-    });
-
-    setShowCategoryModal(true);
-    clearMessages();
-  };
-
-  const closeCategoryModal = () => {
-    setShowCategoryModal(false);
-    setEditingCategory(null);
-  };
-
-  const handleCategorySubmit =
-    async (event) => {
-      event.preventDefault();
-
-      if (!categoryForm.name.trim()) {
-        setError(
-          "Category name is required."
-        );
-        return;
-      }
-
-      if (!categoryForm.slug.trim()) {
-        setError(
-          "Category slug is required."
-        );
-        return;
-      }
+      // ----------------------------------------------
+      // THIRD: CALL GROUP API
+      // ----------------------------------------------
 
       try {
-        setSaving(true);
-        clearMessages();
 
-        const payload = {
-          name: categoryForm.name.trim(),
-          slug: categoryForm.slug.trim(),
-          icon: categoryForm.icon.trim(),
-          sortOrder:
-            Number(categoryForm.sortOrder) || 1,
-        };
+        console.log(
+          "RESOLVING CATEGORY:",
+          slug
+        );
 
-        if (editingCategory) {
-          await updateSettingCategory(
-            editingCategory.id ||
-              editingCategory.uuid,
-            payload
+        const response =
+          await getSettingsGroup(
+            slug
           );
 
-          setSuccess(
-            "Category updated successfully."
-          );
-        } else {
-          await createSettingCategory(
-            payload
-          );
+        console.log(
+          "CATEGORY GROUP RESPONSE:",
+          response
+        );
 
-          setSuccess(
-            "Category created successfully."
+        const data =
+          response?.data?.data;
+
+        const uuid =
+          data?.category?.uuid ||
+          data?.uuid ||
+          "";
+
+        if (uuid) {
+
+          // update local category
+          setCategories(
+            (prev) =>
+              prev.map(
+                (item) =>
+                  item.slug === slug
+                    ? {
+                        ...item,
+                        uuid,
+                      }
+                    : item
+              )
           );
         }
 
-        closeCategoryModal();
+        return uuid;
 
-        await loadAllCategories();
-        await loadCategories();
-      } catch (err) {
+      } catch (error) {
+
         console.error(
-          "CATEGORY SAVE ERROR:",
-          err
+          "CATEGORY UUID ERROR:",
+          error
         );
 
-        setError(
-          getErrorMessage(
-            err,
-            "Unable to save category."
-          )
+        return "";
+      }
+    };
+
+
+  // ====================================================
+  // SELECT CATEGORY
+  // ====================================================
+
+  const handleCategorySelect =
+    async (slug) => {
+
+      setSelectedSlug(slug);
+
+      const uuid =
+        await resolveCategoryUuid(
+          slug
         );
+
+      console.log(
+        "SELECTED CATEGORY UUID:",
+        uuid
+      );
+    };
+
+
+  // ====================================================
+  // CURRENT SETTINGS
+  // ====================================================
+
+  const visibleSettings =
+    useMemo(() => {
+
+      if (!selectedSlug) {
+        return [];
+      }
+
+      return settings.filter(
+        (setting) =>
+          setting?.category
+            ?.slug === selectedSlug
+      );
+
+    }, [
+      settings,
+      selectedSlug,
+    ]);
+
+
+  // ====================================================
+  // OPEN CREATE
+  // ====================================================
+
+  const openCreate = async () => {
+
+    setEditingSetting(null);
+
+    const uuid =
+      await resolveCategoryUuid(
+        selectedSlug
+      );
+
+    setForm({
+      ...initialForm,
+
+      categoryUuid:
+        uuid,
+
+      group:
+        categories.find(
+          (item) =>
+            item.slug ===
+            selectedSlug
+        )?.name ||
+        "",
+    });
+
+    setModalOpen(true);
+  };
+
+
+  // ====================================================
+  // OPEN EDIT
+  // ====================================================
+
+  const openEdit = (
+    setting
+  ) => {
+
+    console.log(
+      "EDIT SETTING:",
+      setting
+    );
+
+    setEditingSetting(
+      setting
+    );
+
+    setForm({
+      categoryUuid:
+        setting?.category?.uuid ||
+        setting?.categoryUuid ||
+        "",
+
+      key:
+        setting?.key || "",
+
+      label:
+        setting?.label || "",
+
+      group:
+        setting?.group || "",
+
+      description:
+        setting?.description || "",
+
+      value:
+        setting?.value ?? "",
+
+      defaultValue:
+        setting?.defaultValue ?? "",
+
+      type:
+        setting?.type ||
+        "STRING",
+
+      validation: {
+        required:
+          setting?.validation
+            ?.required ?? false,
+
+        min:
+          setting?.validation
+            ?.min ?? "",
+
+        max:
+          setting?.validation
+            ?.max ?? "",
+
+        minLength:
+          setting?.validation
+            ?.minLength ?? "",
+
+        maxLength:
+          setting?.validation
+            ?.maxLength ?? "",
+      },
+
+      options: {
+        values:
+          setting?.options
+            ?.values || [],
+      },
+
+      isEncrypted:
+        setting?.isEncrypted ??
+        false,
+
+      isPublic:
+        setting?.isPublic ??
+        false,
+
+      isEditable:
+        setting?.isEditable ??
+        true,
+
+      sortOrder:
+        setting?.sortOrder ?? 0,
+    });
+
+    setModalOpen(true);
+  };
+
+
+  // ====================================================
+  // FORM CHANGE
+  // ====================================================
+
+  const updateForm = (
+    field,
+    value
+  ) => {
+
+    setForm(
+      (prev) => ({
+        ...prev,
+        [field]: value,
+      })
+    );
+  };
+
+
+  // ====================================================
+  // VALIDATE FORM
+  // ====================================================
+
+  const validateForm = () => {
+
+    if (
+      !form.categoryUuid
+    ) {
+
+      showToast(
+        "error",
+        "Please select a category."
+      );
+
+      return false;
+    }
+
+
+    if (
+      !form.key.trim()
+    ) {
+
+      showToast(
+        "error",
+        "Setting key is required."
+      );
+
+      return false;
+    }
+
+
+    if (
+      !form.label.trim()
+    ) {
+
+      showToast(
+        "error",
+        "Setting label is required."
+      );
+
+      return false;
+    }
+
+
+    if (
+      !form.type
+    ) {
+
+      showToast(
+        "error",
+        "Please select setting type."
+      );
+
+      return false;
+    }
+
+
+    return true;
+  };
+
+
+  // ====================================================
+  // BUILD PAYLOAD
+  // ====================================================
+
+  const buildPayload = () => {
+
+    const payload = {
+
+      categoryUuid:
+        form.categoryUuid,
+
+      key:
+        form.key.trim(),
+
+      label:
+        form.label.trim(),
+
+      group:
+        form.group.trim(),
+
+      description:
+        form.description.trim(),
+
+      value:
+        form.value,
+
+      defaultValue:
+        form.defaultValue,
+
+      type:
+        form.type,
+
+      validation: {},
+
+      options:
+        null,
+
+      isEncrypted:
+        Boolean(
+          form.isEncrypted
+        ),
+
+      isPublic:
+        Boolean(
+          form.isPublic
+        ),
+
+      isEditable:
+        Boolean(
+          form.isEditable
+        ),
+
+      sortOrder:
+        Number(
+          form.sortOrder || 0
+        ),
+    };
+
+
+    // ----------------------------------------------
+    // VALIDATION
+    // ----------------------------------------------
+
+    if (
+      form.validation.required
+    ) {
+      payload.validation.required =
+        true;
+    }
+
+    if (
+      form.validation.min !== ""
+    ) {
+      payload.validation.min =
+        Number(
+          form.validation.min
+        );
+    }
+
+    if (
+      form.validation.max !== ""
+    ) {
+      payload.validation.max =
+        Number(
+          form.validation.max
+        );
+    }
+
+    if (
+      form.validation.minLength !== ""
+    ) {
+      payload.validation.minLength =
+        Number(
+          form.validation.minLength
+        );
+    }
+
+    if (
+      form.validation.maxLength !== ""
+    ) {
+      payload.validation.maxLength =
+        Number(
+          form.validation.maxLength
+        );
+    }
+
+
+    // ----------------------------------------------
+    // OPTIONS
+    // ----------------------------------------------
+
+    if (
+      form.options.values
+        .length > 0
+    ) {
+
+      payload.options = {
+        values:
+          form.options.values,
+      };
+    }
+
+
+    console.log(
+      "FINAL SETTING PAYLOAD:",
+      payload
+    );
+
+    return payload;
+  };
+
+
+  // ====================================================
+  // SAVE
+  // ====================================================
+
+  const handleSave =
+    async (e) => {
+
+      e.preventDefault();
+
+      if (
+        !validateForm()
+      ) {
+        return;
+      }
+
+      setSaving(true);
+
+      try {
+
+        const payload =
+          buildPayload();
+
+        console.log(
+          "SETTING REQUEST PAYLOAD:",
+          payload
+        );
+
+
+        // --------------------------------------------
+        // CREATE
+        // --------------------------------------------
+
+        if (
+          !editingSetting
+        ) {
+
+          const response =
+            await createSetting(
+              payload
+            );
+
+          console.log(
+            "CREATE SETTING RESPONSE:",
+            response
+          );
+
+          showToast(
+            "success",
+            "Setting created successfully."
+          );
+
+        }
+
+        // --------------------------------------------
+        // UPDATE
+        // --------------------------------------------
+
+        else {
+
+          const uuid =
+            editingSetting?.uuid;
+
+          if (!uuid) {
+
+            showToast(
+              "error",
+              "Setting UUID is missing. Cannot update."
+            );
+
+            return;
+          }
+
+
+          // IMPORTANT:
+          // PATCH + UUID
+          const response =
+            await updateSetting(
+              uuid,
+              payload
+            );
+
+          console.log(
+            "UPDATE SETTING RESPONSE:",
+            response
+          );
+
+          showToast(
+            "success",
+            "Setting updated successfully."
+          );
+        }
+
+
+        setModalOpen(false);
+
+        setEditingSetting(null);
+
+        setForm(
+          initialForm
+        );
+
+        await loadData();
+
+      } catch (error) {
+
+        console.error(
+          "SETTING SAVE ERROR:",
+          error
+        );
+
+        showToast(
+          "error",
+          getErrorMessage(error)
+        );
+
       } finally {
+
         setSaving(false);
       }
     };
 
-  // =========================
-  // DELETE CATEGORY
-  // =========================
 
-  const handleDeleteCategory =
-    async (category) => {
-      const id =
-        category?.id ||
-        category?.uuid;
+  // ====================================================
+  // DELETE
+  // ====================================================
 
-      if (!id) {
-        setError(
-          "Category ID is missing."
+  const handleDelete =
+    async (setting) => {
+
+      if (!setting?.uuid) {
+
+        showToast(
+          "error",
+          "Setting UUID is missing."
         );
+
         return;
       }
 
+
       const confirmed =
         window.confirm(
-          `Delete category "${
-            category?.name ||
-            category?.slug ||
-            "this category"
-          }"?`
+          `Delete "${setting.label}"?`
         );
 
-      if (!confirmed) return;
+      if (!confirmed) {
+        return;
+      }
+
+
+      setDeleting(true);
 
       try {
-        setLoadingCrud(true);
-        clearMessages();
 
-        await deleteSettingCategory(id);
-
-        setSuccess(
-          "Category deleted successfully."
+        console.log(
+          "DELETE UUID:",
+          setting.uuid
         );
 
-        await loadAllCategories();
-        await loadCategories();
-      } catch (err) {
+        await deleteSetting(
+          setting.uuid
+        );
+
+        showToast(
+          "success",
+          "Setting deleted successfully."
+        );
+
+        await loadData();
+
+      } catch (error) {
+
         console.error(
-          "DELETE CATEGORY ERROR:",
-          err
+          "DELETE SETTING ERROR:",
+          error
         );
 
-        setError(
-          getErrorMessage(
-            err,
-            "Unable to delete category."
-          )
+        showToast(
+          "error",
+          getErrorMessage(error)
         );
+
       } finally {
-        setLoadingCrud(false);
+
+        setDeleting(false);
       }
     };
 
-  // =========================
-  // LOADING
-  // =========================
 
-  if (loadingCategories) {
-    return (
-      <div className="settings-page">
-        <div className="settings-header">
-          <div>
-            <span className="settings-eyebrow">
-              ADMIN CONFIGURATION
-            </span>
-
-            <h1>Settings</h1>
-
-            <p>
-              Manage your marketplace
-              application settings.
-            </p>
-          </div>
-        </div>
-
-        <div className="settings-loading-grid">
-          <div className="settings-skeleton sidebar-skeleton" />
-
-          <div className="settings-skeleton content-skeleton" />
-        </div>
-      </div>
-    );
-  }
-
-  // =========================
-  // MAIN UI
-  // =========================
+  // ====================================================
+  // RENDER
+  // ====================================================
 
   return (
     <div className="settings-page">
 
+      {/* TOAST */}
+
+      <Toast
+        toast={toast}
+        onClose={() =>
+          setToast(null)
+        }
+      />
+
+
       {/* HEADER */}
 
       <div className="settings-header">
-        <div>
-          <span className="settings-eyebrow">
-            ADMIN CONFIGURATION
-          </span>
 
-          <h1>Settings</h1>
+        <div>
+
+          <div className="settings-eyebrow">
+            ADMIN CONFIGURATION
+          </div>
+
+          <h1>
+            Settings
+          </h1>
 
           <p>
-            Manage your marketplace
-            application settings.
+            Manage your application
+            settings.
           </p>
+
         </div>
 
-        <div className="settings-header-actions">
-          <button
-            className={
-              activePanel === "settings"
-                ? "header-tab active"
-                : "header-tab"
-            }
-            onClick={() =>
-              setActivePanel("settings")
-            }
-          >
+        <div className="settings-tabs">
+
+          <button className="active">
             Settings
           </button>
 
-          <button
-            className={
-              activePanel === "categories"
-                ? "header-tab active"
-                : "header-tab"
-            }
-            onClick={() =>
-              setActivePanel("categories")
-            }
-          >
-            Categories
+          <button>
+            All Settings
           </button>
+
         </div>
+
       </div>
 
-      {/* ALERT */}
 
-      {error && (
-        <div className="settings-alert settings-error">
-          <div>
-            <strong>
-              Something went wrong
-            </strong>
+      {/* BODY */}
 
-            <p>{error}</p>
-          </div>
+      <div className="settings-layout">
 
-          <button
-            onClick={() => {
-              setError("");
-            }}
-          >
-            ×
-          </button>
-        </div>
-      )}
+        {/* LEFT */}
 
-      {success && (
-        <div className="settings-alert settings-success">
-          <span>{success}</span>
+        <aside className="settings-sidebar">
 
-          <button
-            onClick={() =>
-              setSuccess("")
-            }
-          >
-            ×
-          </button>
-        </div>
-      )}
+          <div className="sidebar-heading">
 
-      {/* =========================
-          SETTINGS PANEL
-      ========================= */}
+            <div>
 
-      {activePanel === "settings" && (
-        <div className="settings-layout">
+              <small>
+                CONFIGURATION
+              </small>
 
-          {/* SIDEBAR */}
+              <h2>
+                Settings Groups
+              </h2>
 
-          <aside className="settings-sidebar">
-
-            <div className="settings-sidebar-top">
-              <div>
-                <span>
-                  CONFIGURATION
-                </span>
-
-                <h3>
-                  Settings Groups
-                </h3>
-              </div>
-
-              <button
-                className="icon-add-btn"
-                onClick={openCreateSetting}
-                title="Add setting"
-              >
-                +
-              </button>
             </div>
 
-            {categories.length === 0 ? (
-              <div className="settings-empty-small">
-                <div>⚙</div>
+            <button
+              onClick={openCreate}
+              disabled={
+                !selectedSlug
+              }
+              className="add-button"
+            >
+              +
+            </button>
 
-                <p>
-                  No categories
-                  available.
-                </p>
+          </div>
+
+
+          {/* LOADING */}
+
+          {loading && (
+            <div className="empty-box">
+              Loading categories...
+            </div>
+          )}
+
+
+          {/* ERROR */}
+
+          {!loading &&
+            categories.length === 0 && (
+              <div className="empty-box error-box">
+
+                <strong>
+                  No categories found.
+                </strong>
+
+                <span>
+                  Check browser console
+                  for category response.
+                </span>
+
+                <button
+                  onClick={loadData}
+                  className="retry-button"
+                >
+                  Retry
+                </button>
+
               </div>
-            ) : (
-              <div className="settings-category-list">
+            )}
+
+
+          {/* CATEGORIES */}
+
+          {!loading &&
+            categories.length > 0 && (
+
+              <div className="category-list">
+
                 {categories.map(
                   (category) => (
+
                     <button
                       key={
                         category.slug
                       }
-                      className={
-                        selectedSlug ===
-                        category.slug
-                          ? "settings-category active"
-                          : "settings-category"
-                      }
                       onClick={() =>
-                        setSelectedSlug(
+                        handleCategorySelect(
                           category.slug
                         )
                       }
+                      className={
+                        selectedSlug ===
+                        category.slug
+                          ? "category-item active"
+                          : "category-item"
+                      }
                     >
+
                       <span className="category-icon">
                         {category.icon ||
                           "⚙"}
                       </span>
 
-                      <span className="category-name">
-                        {category.name ||
-                          category.slug}
+                      <span>
+                        {category.name}
                       </span>
 
-                      <span className="category-arrow">
-                        →
-                      </span>
                     </button>
+
                   )
                 )}
-              </div>
-            )}
-
-          </aside>
-
-          {/* CONTENT */}
-
-          <main className="settings-content">
-
-            {loadingSettings ? (
-              <div className="settings-form-card">
-                <div className="form-skeleton large" />
-                <div className="form-skeleton" />
-                <div className="form-skeleton" />
-                <div className="form-skeleton" />
-              </div>
-            ) : Object.keys(
-                settings
-              ).length === 0 ? (
-              <div className="settings-empty">
-                <div className="empty-icon">
-                  ⚙
-                </div>
-
-                <h2>
-                  No settings found
-                </h2>
-
-                <p>
-                  There are no
-                  configurable values
-                  available for this
-                  category.
-                </p>
-
-                <button
-                  className="primary-settings-btn"
-                  onClick={
-                    openCreateSetting
-                  }
-                >
-                  + Add Setting
-                </button>
-              </div>
-            ) : (
-              <div className="settings-form-card">
-
-                <div className="settings-card-header">
-
-                  <div>
-                    <span className="settings-card-label">
-                      SETTINGS GROUP
-                    </span>
-
-                    <h2>
-                      {categoryInfo?.name ||
-                        selectedSlug}
-                    </h2>
-
-                    <p>
-                      Configure the
-                      settings for this
-                      category.
-                    </p>
-                  </div>
-
-                  <span className="settings-badge">
-                    {selectedSlug}
-                  </span>
-                </div>
-
-                <div className="settings-form">
-
-                  {Object.entries(
-                    settings
-                  ).map(
-                    ([key, value]) => {
-
-                      const isBoolean =
-                        typeof value ===
-                        "boolean";
-
-                      const isMasked =
-                        typeof value ===
-                          "string" &&
-                        value.includes("*");
-
-                      return (
-                        <div
-                          className="setting-field"
-                          key={key}
-                        >
-                          <label
-                            htmlFor={key}
-                          >
-                            {formatLabel(
-                              key
-                            )}
-                          </label>
-
-                          {isBoolean ? (
-                            <label className="switch-row">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  value
-                                }
-                                onChange={(
-                                  e
-                                ) =>
-                                  handleGroupChange(
-                                    key,
-                                    e.target
-                                      .checked
-                                  )
-                                }
-                              />
-
-                              <span className="switch-ui" />
-
-                              <span>
-                                {value
-                                  ? "Enabled"
-                                  : "Disabled"}
-                              </span>
-                            </label>
-                          ) : (
-                            <input
-                              id={key}
-                              type={
-                                isMasked
-                                  ? "password"
-                                  : "text"
-                              }
-                              value={
-                                value ??
-                                ""
-                              }
-                              onChange={(
-                                e
-                              ) =>
-                                handleGroupChange(
-                                  key,
-                                  e.target
-                                    .value
-                                )
-                              }
-                              placeholder={`Enter ${formatLabel(
-                                key
-                              )}`}
-                            />
-                          )}
-                        </div>
-                      );
-                    }
-                  )}
-
-                </div>
-
-                <div className="settings-form-footer">
-
-                  <button
-                    className="secondary-settings-btn"
-                    onClick={() =>
-                      loadGroup(
-                        selectedSlug
-                      )
-                    }
-                    disabled={saving}
-                  >
-                    Reset
-                  </button>
-
-                  <button
-                    className="save-settings-btn"
-                    onClick={
-                      handleSaveGroup
-                    }
-                    disabled={saving}
-                  >
-                    {saving
-                      ? "Saving..."
-                      : "Save Changes"}
-                  </button>
-
-                </div>
 
               </div>
             )}
 
-          </main>
-        </div>
-      )}
+        </aside>
 
-      {/* =========================
-          CATEGORIES MANAGEMENT
-      ========================= */}
 
-      {activePanel ===
-        "categories" && (
-        <div className="crud-card">
+        {/* RIGHT */}
 
-          <div className="crud-header">
+        <main className="settings-content">
+
+          <div className="content-header">
 
             <div>
-              <span className="settings-card-label">
-                SETTINGS MANAGEMENT
-              </span>
+
+              <small>
+                SETTINGS GROUP
+              </small>
 
               <h2>
-                Setting Categories
+                {
+                  categories.find(
+                    (item) =>
+                      item.slug ===
+                      selectedSlug
+                  )?.name ||
+                  "Settings"
+                }
               </h2>
 
-              <p>
-                Create and manage
-                configuration categories.
-              </p>
             </div>
 
             <button
-              className="primary-settings-btn"
-              onClick={
-                openCreateCategory
-              }
-            >
-              + Add Category
-            </button>
-
-          </div>
-
-          {loadingCrud ? (
-            <div className="crud-loading">
-              <div />
-              <div />
-              <div />
-              <div />
-            </div>
-          ) : allCategories.length ===
-            0 ? (
-            <div className="crud-empty">
-              <div>📁</div>
-
-              <h3>
-                No categories found
-              </h3>
-
-              <p>
-                Create your first
-                settings category.
-              </p>
-            </div>
-          ) : (
-            <div className="crud-table-wrapper">
-
-              <table className="settings-table">
-
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Slug</th>
-                    <th>Icon</th>
-                    <th>Order</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {allCategories.map(
-                    (category) => (
-                      <tr
-                        key={
-                          category.id ||
-                          category.uuid ||
-                          category.slug
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {
-                              category.name
-                            }
-                          </strong>
-                        </td>
-
-                        <td>
-                          <span className="slug-badge">
-                            {
-                              category.slug
-                            }
-                          </span>
-                        </td>
-
-                        <td>
-                          <span className="table-icon">
-                            {category.icon ||
-                              "⚙"}
-                          </span>
-                        </td>
-
-                        <td>
-                          {
-                            category.sortOrder
-                          }
-                        </td>
-
-                        <td>
-                          <div className="table-actions">
-
-                            <button
-                              className="edit-btn"
-                              onClick={() =>
-                                openEditCategory(
-                                  category
-                                )
-                              }
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              className="delete-btn"
-                              onClick={() =>
-                                handleDeleteCategory(
-                                  category
-                                )
-                              }
-                            >
-                              Delete
-                            </button>
-
-                          </div>
-                        </td>
-
-                      </tr>
-                    )
-                  )}
-                </tbody>
-
-              </table>
-
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* =========================
-          SETTINGS CRUD
-      ========================= */}
-
-      {activePanel === "settings" && (
-        <div className="crud-card settings-crud-card">
-
-          <div className="crud-header">
-
-            <div>
-              <span className="settings-card-label">
-                SETTINGS CRUD
-              </span>
-
-              <h2>
-                All Settings
-              </h2>
-
-              <p>
-                Create, update and
-                remove individual
-                settings.
-              </p>
-            </div>
-
-            <button
-              className="primary-settings-btn"
-              onClick={
-                openCreateSetting
+              className="primary-button"
+              onClick={openCreate}
+              disabled={
+                !selectedSlug
               }
             >
               + Add Setting
@@ -1273,152 +1329,151 @@ export default function Settings() {
 
           </div>
 
-          {loadingCrud ? (
-            <div className="crud-loading">
-              <div />
-              <div />
-              <div />
-            </div>
-          ) : allSettings.length ===
-            0 ? (
-            <div className="crud-empty">
-              <div>⚙</div>
+
+          {/* SETTINGS */}
+
+          {visibleSettings.length ===
+            0 && (
+
+            <div className="no-settings">
 
               <h3>
-                No settings found
+                No settings found.
               </h3>
 
               <p>
-                No individual
-                settings are available.
+                Click "Add Setting" to
+                create one.
               </p>
-            </div>
-          ) : (
-            <div className="crud-table-wrapper">
-
-              <table className="settings-table">
-
-                <thead>
-                  <tr>
-                    <th>Key</th>
-                    <th>Value</th>
-                    <th>Category</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {allSettings.map(
-                    (setting) => (
-                      <tr
-                        key={
-                          setting.id ||
-                          setting.uuid ||
-                          setting.key
-                        }
-                      >
-                        <td>
-                          <strong>
-                            {setting.key ||
-                              setting.name}
-                          </strong>
-                        </td>
-
-                        <td>
-                          <span className="value-preview">
-                            {String(
-                              setting.value ??
-                                ""
-                            )}
-                          </span>
-                        </td>
-
-                        <td>
-                          <span className="slug-badge">
-                            {setting.category ||
-                              setting.categorySlug ||
-                              "-"}
-                          </span>
-                        </td>
-
-                        <td>
-                          <div className="table-actions">
-
-                            <button
-                              className="edit-btn"
-                              onClick={() =>
-                                openEditSetting(
-                                  setting
-                                )
-                              }
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              className="delete-btn"
-                              onClick={() =>
-                                handleDeleteSetting(
-                                  setting
-                                )
-                              }
-                            >
-                              Delete
-                            </button>
-
-                          </div>
-                        </td>
-
-                      </tr>
-                    )
-                  )}
-                </tbody>
-
-              </table>
 
             </div>
           )}
 
-        </div>
-      )}
 
-      {/* =========================
-          SETTING MODAL
-      ========================= */}
+          {visibleSettings.length >
+            0 && (
 
-      {showSettingModal && (
-        <div
-          className="settings-modal-overlay"
-          onMouseDown={
-            closeSettingModal
-          }
-        >
+            <div className="settings-list">
 
-          <div
-            className="settings-modal"
-            onMouseDown={(e) =>
-              e.stopPropagation()
-            }
-          >
+              {visibleSettings.map(
+                (setting) => (
+
+                  <div
+                    className="setting-card"
+                    key={
+                      setting.uuid
+                    }
+                  >
+
+                    <div className="setting-info">
+
+                      <div className="setting-title">
+
+                        <h3>
+                          {setting.label}
+                        </h3>
+
+                        <span>
+                          {setting.key}
+                        </span>
+
+                      </div>
+
+                      <p>
+                        {
+                          setting.description
+                        }
+                      </p>
+
+                      <div className="setting-meta">
+
+                        <span>
+                          Type:{" "}
+                          {setting.type}
+                        </span>
+
+                        <span>
+                          Value:{" "}
+                          {String(
+                            setting.value
+                          )}
+                        </span>
+
+                      </div>
+
+                    </div>
+
+
+                    <div className="setting-actions">
+
+                      <button
+                        className="edit-button"
+                        onClick={() =>
+                          openEdit(
+                            setting
+                          )
+                        }
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        className="delete-button"
+                        disabled={
+                          deleting
+                        }
+                        onClick={() =>
+                          handleDelete(
+                            setting
+                          )
+                        }
+                      >
+                        Delete
+                      </button>
+
+                    </div>
+
+                  </div>
+                )
+              )}
+
+            </div>
+          )}
+
+        </main>
+
+      </div>
+
+
+      {/* MODAL */}
+
+      {modalOpen && (
+
+        <div className="modal-overlay">
+
+          <div className="settings-modal">
 
             <div className="modal-header">
 
               <div>
-                <span>
-                  SETTING
-                </span>
 
                 <h2>
                   {editingSetting
                     ? "Edit Setting"
-                    : "Create Setting"}
+                    : "Add Setting"}
                 </h2>
+
+                <p>
+                  Configure setting
+                  information.
+                </p>
+
               </div>
 
               <button
                 className="modal-close"
-                onClick={
-                  closeSettingModal
+                onClick={() =>
+                  setModalOpen(false)
                 }
               >
                 ×
@@ -1426,91 +1481,65 @@ export default function Settings() {
 
             </div>
 
+
             <form
               onSubmit={
-                handleSettingSubmit
+                handleSave
               }
             >
 
-              <div className="modal-field">
+              {/* CATEGORY */}
+
+              <div className="form-group">
 
                 <label>
-                  Setting Key
-                </label>
-
-                <input
-                  value={
-                    settingForm.key
-                  }
-                  onChange={(e) =>
-                    setSettingForm(
-                      (prev) => ({
-                        ...prev,
-                        key:
-                          e.target
-                            .value,
-                      })
-                    )
-                  }
-                  placeholder="e.g. company_name"
-                />
-
-              </div>
-
-              <div className="modal-field">
-
-                <label>
-                  Value
-                </label>
-
-                <textarea
-                  value={
-                    settingForm.value
-                  }
-                  onChange={(e) =>
-                    setSettingForm(
-                      (prev) => ({
-                        ...prev,
-                        value:
-                          e.target
-                            .value,
-                      })
-                    )
-                  }
-                  placeholder="Enter setting value"
-                  rows="4"
-                />
-
-              </div>
-
-              <div className="modal-field">
-
-                <label>
-                  Category
+                  Category *
                 </label>
 
                 <select
                   value={
-                    settingForm.category
+                    selectedSlug
                   }
-                  onChange={(e) =>
-                    setSettingForm(
+                  onChange={async (
+                    e
+                  ) => {
+
+                    const slug =
+                      e.target.value;
+
+                    setSelectedSlug(
+                      slug
+                    );
+
+                    const uuid =
+                      await resolveCategoryUuid(
+                        slug
+                      );
+
+                    console.log(
+                      "SELECTED CATEGORY UUID:",
+                      uuid
+                    );
+
+                    setForm(
                       (prev) => ({
                         ...prev,
-                        category:
-                          e.target
-                            .value,
+                        categoryUuid:
+                          uuid,
                       })
-                    )
-                  }
+                    );
+
+                  }}
+                  required
                 >
 
                   <option value="">
-                    Select category
+                    Select Category
                   </option>
 
                   {categories.map(
                     (category) => (
+
                       <option
                         key={
                           category.slug
@@ -1519,24 +1548,369 @@ export default function Settings() {
                           category.slug
                         }
                       >
-                        {
-                          category.name
-                        }
+                        {category.name}
                       </option>
+
                     )
                   )}
 
                 </select>
 
+                {!form.categoryUuid && (
+                  <small className="field-error">
+                    Select a category.
+                  </small>
+                )}
+
               </div>
 
-              <div className="modal-footer">
+
+              {/* KEY */}
+
+              <div className="form-group">
+
+                <label>
+                  Key *
+                </label>
+
+                <input
+                  value={
+                    form.key
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "key",
+                      e.target.value
+                    )
+                  }
+                  placeholder="smtp.host"
+                  required
+                />
+
+              </div>
+
+
+              {/* LABEL */}
+
+              <div className="form-group">
+
+                <label>
+                  Label *
+                </label>
+
+                <input
+                  value={
+                    form.label
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "label",
+                      e.target.value
+                    )
+                  }
+                  placeholder="SMTP Host"
+                  required
+                  maxLength={150}
+                />
+
+              </div>
+
+
+              {/* GROUP */}
+
+              <div className="form-group">
+
+                <label>
+                  Group
+                </label>
+
+                <input
+                  value={
+                    form.group
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "group",
+                      e.target.value
+                    )
+                  }
+                  placeholder="SMTP"
+                />
+
+              </div>
+
+
+              {/* DESCRIPTION */}
+
+              <div className="form-group">
+
+                <label>
+                  Description
+                </label>
+
+                <textarea
+                  value={
+                    form.description
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "description",
+                      e.target.value
+                    )
+                  }
+                  placeholder="SMTP Host Address"
+                  rows={3}
+                />
+
+              </div>
+
+
+              {/* VALUE */}
+
+              <div className="form-group">
+
+                <label>
+                  Value
+                </label>
+
+                <input
+                  value={
+                    form.value
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "value",
+                      e.target.value
+                    )
+                  }
+                  placeholder="smtp.gmail.com"
+                />
+
+              </div>
+
+
+              {/* DEFAULT VALUE */}
+
+              <div className="form-group">
+
+                <label>
+                  Default Value
+                </label>
+
+                <input
+                  value={
+                    form.defaultValue
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "defaultValue",
+                      e.target.value
+                    )
+                  }
+                  placeholder="smtp.gmail.com"
+                />
+
+              </div>
+
+
+              {/* TYPE */}
+
+              <div className="form-group">
+
+                <label>
+                  Type *
+                </label>
+
+                <select
+                  value={
+                    form.type
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "type",
+                      e.target.value
+                    )
+                  }
+                >
+
+                  <option value="STRING">
+                    STRING
+                  </option>
+
+                  <option value="NUMBER">
+                    NUMBER
+                  </option>
+
+                  <option value="BOOLEAN">
+                    BOOLEAN
+                  </option>
+
+                  <option value="JSON">
+                    JSON
+                  </option>
+
+                  <option value="ARRAY">
+                    ARRAY
+                  </option>
+
+                  <option value="OBJECT">
+                    OBJECT
+                  </option>
+
+                  <option value="EMAIL">
+                    EMAIL
+                  </option>
+
+                  <option value="URL">
+                    URL
+                  </option>
+
+                  <option value="PASSWORD">
+                    PASSWORD
+                  </option>
+
+                  <option value="COLOR">
+                    COLOR
+                  </option>
+
+                  <option value="FILE">
+                    FILE
+                  </option>
+
+                </select>
+
+              </div>
+
+
+              {/* REQUIRED */}
+
+              <label className="checkbox-row">
+
+                <input
+                  type="checkbox"
+                  checked={
+                    form.validation
+                      .required
+                  }
+                  onChange={(e) =>
+                    setForm(
+                      (prev) => ({
+                        ...prev,
+                        validation: {
+                          ...prev.validation,
+                          required:
+                            e.target
+                              .checked,
+                        },
+                      })
+                    )
+                  }
+                />
+
+                Required
+
+              </label>
+
+
+              {/* ENCRYPTED */}
+
+              <label className="checkbox-row">
+
+                <input
+                  type="checkbox"
+                  checked={
+                    form.isEncrypted
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "isEncrypted",
+                      e.target.checked
+                    )
+                  }
+                />
+
+                Encrypted
+
+              </label>
+
+
+              {/* PUBLIC */}
+
+              <label className="checkbox-row">
+
+                <input
+                  type="checkbox"
+                  checked={
+                    form.isPublic
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "isPublic",
+                      e.target.checked
+                    )
+                  }
+                />
+
+                Public
+
+              </label>
+
+
+              {/* EDITABLE */}
+
+              <label className="checkbox-row">
+
+                <input
+                  type="checkbox"
+                  checked={
+                    form.isEditable
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "isEditable",
+                      e.target.checked
+                    )
+                  }
+                />
+
+                Editable
+
+              </label>
+
+
+              {/* SORT ORDER */}
+
+              <div className="form-group">
+
+                <label>
+                  Sort Order
+                </label>
+
+                <input
+                  type="number"
+                  value={
+                    form.sortOrder
+                  }
+                  onChange={(e) =>
+                    updateForm(
+                      "sortOrder",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </div>
+
+
+              {/* ACTIONS */}
+
+              <div className="modal-actions">
 
                 <button
                   type="button"
-                  className="secondary-settings-btn"
-                  onClick={
-                    closeSettingModal
+                  className="cancel-button"
+                  onClick={() =>
+                    setModalOpen(false)
                   }
                 >
                   Cancel
@@ -1544,8 +1918,10 @@ export default function Settings() {
 
                 <button
                   type="submit"
-                  className="save-settings-btn"
-                  disabled={saving}
+                  className="primary-button"
+                  disabled={
+                    saving
+                  }
                 >
                   {saving
                     ? "Saving..."
@@ -1559,221 +1935,10 @@ export default function Settings() {
             </form>
 
           </div>
-        </div>
-      )}
 
-      {/* =========================
-          CATEGORY MODAL
-      ========================= */}
-
-      {showCategoryModal && (
-        <div
-          className="settings-modal-overlay"
-          onMouseDown={
-            closeCategoryModal
-          }
-        >
-
-          <div
-            className="settings-modal"
-            onMouseDown={(e) =>
-              e.stopPropagation()
-            }
-          >
-
-            <div className="modal-header">
-
-              <div>
-                <span>
-                  CATEGORY
-                </span>
-
-                <h2>
-                  {editingCategory
-                    ? "Edit Category"
-                    : "Create Category"}
-                </h2>
-              </div>
-
-              <button
-                className="modal-close"
-                onClick={
-                  closeCategoryModal
-                }
-              >
-                ×
-              </button>
-
-            </div>
-
-            <form
-              onSubmit={
-                handleCategorySubmit
-              }
-            >
-
-              <div className="modal-field">
-
-                <label>
-                  Category Name
-                </label>
-
-                <input
-                  value={
-                    categoryForm.name
-                  }
-                  onChange={(e) =>
-                    setCategoryForm(
-                      (prev) => ({
-                        ...prev,
-                        name:
-                          e.target
-                            .value,
-                      })
-                    )
-                  }
-                  placeholder="Company"
-                />
-
-              </div>
-
-              <div className="modal-field">
-
-                <label>
-                  Slug
-                </label>
-
-                <input
-                  value={
-                    categoryForm.slug
-                  }
-                  onChange={(e) =>
-                    setCategoryForm(
-                      (prev) => ({
-                        ...prev,
-                        slug:
-                          e.target
-                            .value
-                            .toLowerCase()
-                            .replace(
-                              /\s+/g,
-                              "-"
-                            ),
-                      })
-                    )
-                  }
-                  placeholder="company"
-                />
-
-              </div>
-
-              <div className="modal-grid">
-
-                <div className="modal-field">
-
-                  <label>
-                    Icon
-                  </label>
-
-                  <input
-                    value={
-                      categoryForm.icon
-                    }
-                    onChange={(e) =>
-                      setCategoryForm(
-                        (prev) => ({
-                          ...prev,
-                          icon:
-                            e.target
-                              .value,
-                        })
-                      )
-                    }
-                    placeholder="building"
-                  />
-
-                </div>
-
-                <div className="modal-field">
-
-                  <label>
-                    Sort Order
-                  </label>
-
-                  <input
-                    type="number"
-                    min="1"
-                    value={
-                      categoryForm.sortOrder
-                    }
-                    onChange={(e) =>
-                      setCategoryForm(
-                        (prev) => ({
-                          ...prev,
-                          sortOrder:
-                            e.target
-                              .value,
-                        })
-                      )
-                    }
-                  />
-
-                </div>
-
-              </div>
-
-              <div className="modal-footer">
-
-                <button
-                  type="button"
-                  className="secondary-settings-btn"
-                  onClick={
-                    closeCategoryModal
-                  }
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  className="save-settings-btn"
-                  disabled={saving}
-                >
-                  {saving
-                    ? "Saving..."
-                    : editingCategory
-                    ? "Update Category"
-                    : "Create Category"}
-                </button>
-
-              </div>
-
-            </form>
-
-          </div>
         </div>
       )}
 
     </div>
   );
-}
-
-// =========================
-// FORMAT LABEL
-// =========================
-
-function formatLabel(value) {
-  return String(value)
-    .replace(/_/g, " ")
-    .replace(
-      /([A-Z])/g,
-      " $1"
-    )
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(
-      /\b\w/g,
-      (char) =>
-        char.toUpperCase()
-    );
 }

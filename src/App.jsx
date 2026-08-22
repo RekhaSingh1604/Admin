@@ -3,7 +3,7 @@ import {
   Route,
   Routes,
 } from "react-router-dom";
-
+import { Toaster } from "react-hot-toast";
 import { useAuth } from "./context/AuthContext";
 
 import Login from "./pages/Login";
@@ -75,6 +75,18 @@ function ProtectedLayout({
 
 export default function App() {
   return (
+<>
+    <Toaster
+  position="top-right"
+  toastOptions={{
+    duration: 3000,
+    style: {
+      borderRadius: "10px",
+      padding: "12px 16px",
+      fontSize: "14px",
+    },
+  }}
+/>
     <Routes>
 
       {/* =========================
@@ -196,5 +208,6 @@ export default function App() {
       />
 
     </Routes>
+    </>
   );
 }

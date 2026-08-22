@@ -1,851 +1,1416 @@
-import { useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  BarChart,
-  Bar,
+  Legend,
 } from "recharts";
-import api from "../services/api";
+
+import toast, { Toaster } from "react-hot-toast";
+
+import {
+  getCustomerAnalytics,
+  getRevenueAnalytics,
+  getInventoryAnalytics,
+  getProductAnalytics,
+} from "../services/analyticsService";
 
 import "./Analytics.css";
 
-export default function Analytics() {
-  const [analytics, setAnalytics] = useState(null);
-  const [period, setPeriod] = useState("90d");
+/* =========================================================
+   OPTIONS
+========================================================= */
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+const PERIOD_OPTIONS = [
+  { label: "7 Days", value: "7d" },
+  { label: "30 Days", value: "30d" },
+  { label: "90 Days", value: "90d" },
+  { label: "1 Year", value: "1y" },
+];
 
-  const loadAnalytics = async (
-    selectedPeriod = period
+const GROUP_OPTIONS = [
+  { label: "Day", value: "day" },
+  { label: "Week", value: "week" },
+  { label: "Month", value: "month" },
+];
+
+const PIE_COLORS = [
+  "#4f46e5",
+  "#06b6d4",
+  "#10b981",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#ec4899",
+  "#64748b",
+];
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+const toNumber = (value) => {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+};
+
+const formatNumber = (value) => {
+  return toNumber(value).toLocaleString(
+    "en-IN"
+  );
+};
+
+const formatCurrency = (value) => {
+  return `₹${toNumber(value).toLocaleString(
+    "en-IN"
+  )}`;
+};
+
+/*
+|--------------------------------------------------------------------------
+| Get actual backend data
+|--------------------------------------------------------------------------
+*/
+
+const extractData = (response) => {
+  const body = response?.data ?? response;
+
+  if (
+    body &&
+    typeof body === "object" &&
+    body.data !== undefined
+  ) {
+    return body.data;
+  }
+
+  return body || {};
+};
+
+/*
+|--------------------------------------------------------------------------
+| Error message
+|--------------------------------------------------------------------------
+*/
+
+const getErrorMessage = (
+  error,
+  fallback
+) => {
+  const message =
+    error?.response?.data?.message;
+
+  if (Array.isArray(message)) {
+    return message.join(", ");
+  }
+
+  if (typeof message === "string") {
+    return message;
+  }
+
+  return (
+    error?.response?.data?.error ||
+    error?.message ||
+    fallback
+  );
+};
+
+/* =========================================================
+   CUSTOMER NORMALIZER
+========================================================= */
+
+const normalizeCustomer = (
+  response
+) => {
+  const data = extractData(response);
+
+  const source =
+    data?.summary ||
+    data?.stats ||
+    data;
+
+  const summary = {
+    newCustomers: toNumber(
+      source?.newCustomers ??
+        source?.new_customers ??
+        source?.newCustomerCount
+    ),
+
+    previousPeriodCustomers: toNumber(
+      source?.previousPeriodCustomers ??
+        source?.previous_period_customers ??
+        source?.previousCustomers
+    ),
+
+    totalCustomers: toNumber(
+      source?.totalCustomers ??
+        source?.total_customers ??
+        source?.customers
+    ),
+  };
+
+  let list =
+    data?.timeline ||
+    data?.series ||
+    data?.chart ||
+    data?.data ||
+    data?.items ||
+    [];
+
+  if (!Array.isArray(list)) {
+    list = [];
+  }
+
+  const chart = list.map(
+    (item, index) => ({
+      name:
+        item?.date ||
+        item?.period ||
+        item?.label ||
+        item?.name ||
+        `Period ${index + 1}`,
+
+      customers: toNumber(
+        item?.customers ??
+          item?.newCustomers ??
+          item?.new_customers ??
+          item?.count ??
+          item?.value
+      ),
+    })
+  );
+
+  /*
+   * If API only gives summary,
+   * create chart from summary.
+   */
+
+  if (chart.length === 0) {
+    chart.push(
+      {
+        name: "New",
+        customers:
+          summary.newCustomers,
+      },
+      {
+        name: "Previous",
+        customers:
+          summary.previousPeriodCustomers,
+      },
+      {
+        name: "Total",
+        customers:
+          summary.totalCustomers,
+      }
+    );
+  }
+
+  return {
+    summary,
+    chart,
+  };
+};
+
+/* =========================================================
+   REVENUE NORMALIZER
+========================================================= */
+
+const normalizeRevenue = (
+  response
+) => {
+  const data = extractData(response);
+
+  const source =
+    data?.summary ||
+    data?.stats ||
+    data;
+
+  const summary = {
+    grossSales: toNumber(
+      source?.grossSales ??
+        source?.gross_sales ??
+        source?.grossRevenue
+    ),
+
+    paidRevenue: toNumber(
+      source?.paidRevenue ??
+        source?.paid_revenue ??
+        source?.revenue ??
+        source?.totalRevenue
+    ),
+
+    refundedAmount: toNumber(
+      source?.refundedAmount ??
+        source?.refunded_amount ??
+        source?.refunds
+    ),
+  };
+
+  let list =
+    data?.timeline ||
+    data?.series ||
+    data?.chart ||
+    data?.data ||
+    data?.items ||
+    [];
+
+  if (!Array.isArray(list)) {
+    list = [];
+  }
+
+  const chart = list.map(
+    (item, index) => ({
+      name:
+        item?.date ||
+        item?.period ||
+        item?.label ||
+        item?.name ||
+        `Period ${index + 1}`,
+
+      revenue: toNumber(
+        item?.revenue ??
+          item?.paidRevenue ??
+          item?.paid_revenue ??
+          item?.amount ??
+          item?.value
+      ),
+    })
+  );
+
+  if (chart.length === 0) {
+    chart.push(
+      {
+        name: "Gross Sales",
+        revenue:
+          summary.grossSales,
+      },
+      {
+        name: "Paid Revenue",
+        revenue:
+          summary.paidRevenue,
+      },
+      {
+        name: "Refunded",
+        revenue:
+          summary.refundedAmount,
+      }
+    );
+  }
+
+  return {
+    summary,
+    chart,
+  };
+};
+
+/* =========================================================
+   INVENTORY NORMALIZER
+========================================================= */
+
+const normalizeInventory = (
+  response
+) => {
+  const data = extractData(response);
+
+  const source =
+    data?.summary ||
+    data?.stats ||
+    data;
+
+  const get = (
+    camel,
+    snake
   ) => {
-    try {
-      setLoading(true);
-      setError("");
+    return toNumber(
+      source?.[camel] ??
+        source?.[snake]
+    );
+  };
 
-      const response = await api.get(
-        "/admin/analytics",
-        {
-          params: {
-            period: selectedPeriod,
-            groupBy: "day",
-          },
-        }
-      );
+  const summary = {
+    stockOnHand: get(
+      "stockOnHand",
+      "stock_on_hand"
+    ),
+
+    totalVariants: get(
+      "totalVariants",
+      "total_variants"
+    ),
+
+    inStockVariants: get(
+      "inStockVariants",
+      "in_stock_variants"
+    ),
+
+    lowStockVariants: get(
+      "lowStockVariants",
+      "low_stock_variants"
+    ),
+
+    outOfStockVariants: get(
+      "outOfStockVariants",
+      "out_of_stock_variants"
+    ),
+
+    reservedStock: get(
+      "reservedStock",
+      "reserved_stock"
+    ),
+
+    damagedStock: get(
+      "damagedStock",
+      "damaged_stock"
+    ),
+  };
+
+  const chart = [
+    {
+      name: "In Stock",
+      value:
+        summary.inStockVariants,
+    },
+    {
+      name: "Low Stock",
+      value:
+        summary.lowStockVariants,
+    },
+    {
+      name: "Out of Stock",
+      value:
+        summary.outOfStockVariants,
+    },
+    {
+      name: "Reserved",
+      value:
+        summary.reservedStock,
+    },
+    {
+      name: "Damaged",
+      value:
+        summary.damagedStock,
+    },
+  ].filter(
+    (item) => item.value > 0
+  );
+
+  return {
+    summary,
+    chart,
+  };
+};
+
+/* =========================================================
+   PRODUCT NORMALIZER
+========================================================= */
+
+const normalizeProduct = (
+  response
+) => {
+  const data = extractData(response);
+
+  const source =
+    data?.summary ||
+    data?.stats ||
+    data;
+
+  const summary = {
+    totalProducts: toNumber(
+      source?.totalProducts ??
+        source?.total_products ??
+        source?.products
+    ),
+
+    publishedProducts: toNumber(
+      source?.publishedProducts ??
+        source?.published_products
+    ),
+
+    featuredProducts: toNumber(
+      source?.featuredProducts ??
+        source?.featured_products
+    ),
+  };
+
+  return {
+    summary,
+
+    chart: [
+      {
+        name: "Total",
+        value:
+          summary.totalProducts,
+      },
+      {
+        name: "Published",
+        value:
+          summary.publishedProducts,
+      },
+      {
+        name: "Featured",
+        value:
+          summary.featuredProducts,
+      },
+    ],
+  };
+};
+
+/* =========================================================
+   MAIN COMPONENT
+========================================================= */
+
+export default function Analytics() {
+  const today = new Date()
+    .toISOString()
+    .split("T")[0];
+
+  /* FILTERS */
+
+  const [period, setPeriod] =
+    useState("30d");
+
+  const [startDate, setStartDate] =
+    useState("");
+
+  const [endDate, setEndDate] =
+    useState("");
+
+  const [groupBy, setGroupBy] =
+    useState("day");
+
+  /* LOADING */
+
+  const [loading, setLoading] =
+    useState(false);
+
+  /* API DATA */
+
+  const [customerResponse, setCustomerResponse] =
+    useState(null);
+
+  const [revenueResponse, setRevenueResponse] =
+    useState(null);
+
+  const [inventoryResponse, setInventoryResponse] =
+    useState(null);
+
+  const [productResponse, setProductResponse] =
+    useState(null);
+
+  /* ERRORS */
+
+  const [errors, setErrors] =
+    useState({
+      customer: "",
+      revenue: "",
+      inventory: "",
+      product: "",
+    });
+
+  /* =======================================================
+     BUILD PARAMS
+  ======================================================= */
+
+  const buildParams =
+    useCallback(() => {
+      const params = {
+        period,
+        groupBy,
+      };
+
+      /*
+       * Date range overrides preset period.
+       */
+
+      if (startDate) {
+        params.startDate =
+          startDate;
+      }
+
+      if (endDate) {
+        params.endDate =
+          endDate;
+      }
+
+      return params;
+    }, [
+      period,
+      groupBy,
+      startDate,
+      endDate,
+    ]);
+
+  /* =======================================================
+     LOAD ANALYTICS
+  ======================================================= */
+
+  const loadAnalytics =
+    useCallback(async () => {
+      if (
+        startDate &&
+        endDate &&
+        startDate > endDate
+      ) {
+        toast.error(
+          "Start date cannot be after end date."
+        );
+
+        return;
+      }
+
+      setLoading(true);
+
+      setErrors({
+        customer: "",
+        revenue: "",
+        inventory: "",
+        product: "",
+      });
+
+      const params =
+        buildParams();
 
       console.log(
-        "ANALYTICS RESPONSE:",
-        response.data
+        "FINAL ANALYTICS PARAMS:",
+        params
       );
 
-      const result =
-        response?.data?.data?.data ||
-        response?.data?.data ||
-        response?.data;
+      const results =
+        await Promise.allSettled([
+          getCustomerAnalytics(
+            params
+          ),
+          getRevenueAnalytics(
+            params
+          ),
+          getInventoryAnalytics(),
+          getProductAnalytics(),
+        ]);
 
-      setAnalytics(result);
-    } catch (err) {
-      console.error(
-        "ANALYTICS ERROR:",
-        err
-      );
+      /* CUSTOMER */
 
-      setError(
-        err?.response?.data?.message ||
-          "Unable to load analytics."
-      );
-    } finally {
+      if (
+        results[0].status ===
+        "fulfilled"
+      ) {
+        console.log(
+          "CUSTOMER ANALYTICS RESPONSE:",
+          results[0].value
+        );
+
+        setCustomerResponse(
+          results[0].value
+        );
+      } else {
+        console.error(
+          "CUSTOMER ANALYTICS ERROR:",
+          results[0].reason
+        );
+
+        setErrors((prev) => ({
+          ...prev,
+          customer:
+            getErrorMessage(
+              results[0].reason,
+              "Unable to load customer analytics."
+            ),
+        }));
+      }
+
+      /* REVENUE */
+
+      if (
+        results[1].status ===
+        "fulfilled"
+      ) {
+        console.log(
+          "REVENUE ANALYTICS RESPONSE:",
+          results[1].value
+        );
+
+        setRevenueResponse(
+          results[1].value
+        );
+      } else {
+        console.error(
+          "REVENUE ANALYTICS ERROR:",
+          results[1].reason
+        );
+
+        setErrors((prev) => ({
+          ...prev,
+          revenue:
+            getErrorMessage(
+              results[1].reason,
+              "Unable to load revenue analytics."
+            ),
+        }));
+      }
+
+      /* INVENTORY */
+
+      if (
+        results[2].status ===
+        "fulfilled"
+      ) {
+        console.log(
+          "INVENTORY ANALYTICS RESPONSE:",
+          results[2].value
+        );
+
+        setInventoryResponse(
+          results[2].value
+        );
+      } else {
+        console.error(
+          "INVENTORY ANALYTICS ERROR:",
+          results[2].reason
+        );
+
+        setErrors((prev) => ({
+          ...prev,
+          inventory:
+            getErrorMessage(
+              results[2].reason,
+              "Unable to load inventory analytics."
+            ),
+        }));
+      }
+
+      /* PRODUCT */
+
+      if (
+        results[3].status ===
+        "fulfilled"
+      ) {
+        console.log(
+          "PRODUCT ANALYTICS RESPONSE:",
+          results[3].value
+        );
+
+        setProductResponse(
+          results[3].value
+        );
+      } else {
+        console.error(
+          "PRODUCT ANALYTICS ERROR:",
+          results[3].reason
+        );
+
+        setErrors((prev) => ({
+          ...prev,
+          product:
+            getErrorMessage(
+              results[3].reason,
+              "Unable to load product analytics."
+            ),
+        }));
+      }
+
       setLoading(false);
+    }, [
+      buildParams,
+      startDate,
+      endDate,
+    ]);
+
+  /* =======================================================
+     INITIAL LOAD
+  ======================================================= */
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
+
+  /* =======================================================
+     NORMALIZE
+  ======================================================= */
+
+  const customerData =
+    useMemo(
+      () =>
+        normalizeCustomer(
+          customerResponse
+        ),
+      [customerResponse]
+    );
+
+  const revenueData =
+    useMemo(
+      () =>
+        normalizeRevenue(
+          revenueResponse
+        ),
+      [revenueResponse]
+    );
+
+  const inventoryData =
+    useMemo(
+      () =>
+        normalizeInventory(
+          inventoryResponse
+        ),
+      [inventoryResponse]
+    );
+
+  const productData =
+    useMemo(
+      () =>
+        normalizeProduct(
+          productResponse
+        ),
+      [productResponse]
+    );
+
+  /* =======================================================
+     HANDLERS
+  ======================================================= */
+
+  const handleApply = () => {
+    loadAnalytics();
+  };
+
+  const handleRefresh = () => {
+    toast.loading(
+      "Refreshing analytics...",
+      {
+        id: "analytics-refresh",
+      }
+    );
+
+    loadAnalytics().finally(() => {
+      toast.success(
+        "Analytics refreshed.",
+        {
+          id: "analytics-refresh",
+        }
+      );
+    });
+  };
+
+  const handleStartDate = (
+    event
+  ) => {
+    const value =
+      event.target.value;
+
+    setStartDate(value);
+
+    /*
+     * If selected start date becomes
+     * greater than end date,
+     * clear end date.
+     */
+
+    if (
+      endDate &&
+      value > endDate
+    ) {
+      setEndDate("");
     }
   };
 
-  useEffect(() => {
-    loadAnalytics(period);
-  }, [period]);
-
-  if (loading) {
-    return (
-      <div className="analytics-page">
-        <h1>Analytics</h1>
-
-        <div className="analytics-loading">
-          Loading analytics...
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="analytics-page">
-
-        <div className="analytics-header">
-          <div>
-            <h1>Analytics</h1>
-            <p>
-              Marketplace performance analytics.
-            </p>
-          </div>
-
-          <select
-            value={period}
-            onChange={(e) =>
-              setPeriod(e.target.value)
-            }
-          >
-            <option value="7d">
-              Last 7 Days
-            </option>
-
-            <option value="30d">
-              Last 30 Days
-            </option>
-
-            <option value="90d">
-              Last 90 Days
-            </option>
-
-            <option value="12m">
-              Last 12 Months
-            </option>
-          </select>
-        </div>
-
-        <div className="analytics-error">
-          <h2>
-            Unable to load analytics
-          </h2>
-
-          <p>{error}</p>
-
-          <button
-            onClick={() =>
-              loadAnalytics(period)
-            }
-          >
-            Try Again
-          </button>
-        </div>
-
-      </div>
-    );
-  }
-
-  if (!analytics) {
-    return (
-      <div className="analytics-page">
-        <div className="analytics-empty">
-          No analytics data available.
-        </div>
-      </div>
-    );
-  }
-
-  const summary =
-    analytics.summary || {};
-
-  const orders =
-    analytics.orders || {};
-
-  const revenue =
-    analytics.revenue || {};
-
-  const inventory =
-    analytics.inventory || {};
-
-  const customers =
-    analytics.customers || {};
-
-  const timeseries =
-    analytics.timeseries || [];
-
-  const topProducts =
-    analytics.topProducts || [];
-
-  const topCustomers =
-    analytics.topCustomers || [];
-
-  const vendors =
-    analytics.vendors || [];
-
-  const recentOrders =
-    analytics.recentOrders || [];
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <div className="analytics-page">
+      <Toaster
+        position="top-right"
+      />
 
       {/* HEADER */}
 
       <div className="analytics-header">
-
         <div>
+          <span className="analytics-eyebrow">
+            ADMIN ANALYTICS
+          </span>
+
           <h1>Analytics</h1>
 
           <p>
-            Marketplace performance analytics.
+            Monitor your customers,
+            revenue, inventory and
+            products.
           </p>
         </div>
 
-        <select
-          value={period}
-          onChange={(e) =>
-            setPeriod(e.target.value)
-          }
+        <button
+          type="button"
+          className="refresh-button"
+          onClick={handleRefresh}
+          disabled={loading}
         >
-          <option value="7d">
-            Last 7 Days
-          </option>
-
-          <option value="30d">
-            Last 30 Days
-          </option>
-
-          <option value="90d">
-            Last 90 Days
-          </option>
-
-          <option value="12m">
-            Last 12 Months
-          </option>
-        </select>
-
+          {loading ? (
+            <>
+              <span className="loading-spinner" />
+              Refreshing...
+            </>
+          ) : (
+            <>↻ Refresh</>
+          )}
+        </button>
       </div>
 
-      {/* KPI */}
+      {/* FILTERS */}
 
-      <div className="analytics-kpis">
+      <section className="filter-card">
+        <div className="filter-item">
+          <label>
+            Period
+          </label>
 
-        <Kpi
-          title="New Orders"
-          value={summary.newOrders}
-          growth={
-            summary.ordersGrowthPct
-          }
-        />
-
-        <Kpi
-          title="Revenue"
-          value={`₹${Number(
-            summary.revenue || 0
-          ).toLocaleString()}`}
-          growth={
-            summary.revenueGrowthPct
-          }
-        />
-
-        <Kpi
-          title="Average Order"
-          value={`₹${Number(
-            summary.averageOrderValue || 0
-          ).toLocaleString()}`}
-        />
-
-        <Kpi
-          title="New Customers"
-          value={
-            summary.newCustomers
-          }
-          growth={
-            summary.customersGrowthPct
-          }
-        />
-
-      </div>
-
-      {/* CHART */}
-
-      <section className="analytics-card">
-
-        <div className="analytics-card-header">
-
-          <div>
-            <h2>
-              Orders & Revenue
-            </h2>
-
-            <p>
-              Performance over selected period.
-            </p>
-          </div>
-
+          <select
+            value={period}
+            onChange={(e) =>
+              setPeriod(
+                e.target.value
+              )
+            }
+          >
+            {PERIOD_OPTIONS.map(
+              (item) => (
+                <option
+                  key={item.value}
+                  value={item.value}
+                >
+                  {item.label}
+                </option>
+              )
+            )}
+          </select>
         </div>
 
-        <div className="chart-container">
+        <div className="filter-item">
+          <label>
+            Start Date
+          </label>
 
-          {timeseries.length === 0 ? (
-            <div className="chart-empty">
-              No timeseries data available.
-            </div>
-          ) : (
+          <input
+            type="date"
+            value={startDate}
+            max={endDate || today}
+            onChange={
+              handleStartDate
+            }
+          />
+        </div>
+
+        <div className="filter-item">
+          <label>
+            End Date
+          </label>
+
+          <input
+            type="date"
+            value={endDate}
+            min={startDate || undefined}
+            max={today}
+            onChange={(e) =>
+              setEndDate(
+                e.target.value
+              )
+            }
+          />
+        </div>
+
+        <div className="filter-item">
+          <label>
+            Group By
+          </label>
+
+          <select
+            value={groupBy}
+            onChange={(e) =>
+              setGroupBy(
+                e.target.value
+              )
+            }
+          >
+            {GROUP_OPTIONS.map(
+              (item) => (
+                <option
+                  key={item.value}
+                  value={item.value}
+                >
+                  {item.label}
+                </option>
+              )
+            )}
+          </select>
+        </div>
+
+        <button
+          type="button"
+          className="apply-button"
+          onClick={handleApply}
+          disabled={loading}
+        >
+          {loading
+            ? "Loading..."
+            : "Apply Filters"}
+        </button>
+      </section>
+
+      {/* SUMMARY CARDS */}
+
+      <section className="summary-grid">
+        <SummaryCard
+          title="Total Customers"
+          value={formatNumber(
+            customerData.summary
+              .totalCustomers
+          )}
+          icon="👥"
+        />
+
+        <SummaryCard
+          title="Paid Revenue"
+          value={formatCurrency(
+            revenueData.summary
+              .paidRevenue
+          )}
+          icon="₹"
+        />
+
+        <SummaryCard
+          title="Total Products"
+          value={formatNumber(
+            productData.summary
+              .totalProducts
+          )}
+          icon="📦"
+        />
+
+        <SummaryCard
+          title="Stock On Hand"
+          value={formatNumber(
+            inventoryData.summary
+              .stockOnHand
+          )}
+          icon="📊"
+        />
+      </section>
+
+      {/* CUSTOMER */}
+
+      <AnalyticsCard
+        title="Customer Analytics"
+        description="Customer performance over the selected period."
+      >
+        <div className="mini-stats">
+          <Stat
+            label="New Customers"
+            value={formatNumber(
+              customerData.summary
+                .newCustomers
+            )}
+          />
+
+          <Stat
+            label="Previous Period"
+            value={formatNumber(
+              customerData.summary
+                .previousPeriodCustomers
+            )}
+          />
+
+          <Stat
+            label="Total Customers"
+            value={formatNumber(
+              customerData.summary
+                .totalCustomers
+            )}
+          />
+        </div>
+
+        {errors.customer ? (
+          <ErrorState
+            message={errors.customer}
+            retry={loadAnalytics}
+          />
+        ) : (
+          <div className="chart-container">
             <ResponsiveContainer
               width="100%"
-              height={330}
+              height="100%"
             >
               <LineChart
-                data={timeseries}
+                data={
+                  customerData.chart
+                }
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
                 />
 
                 <XAxis
-                  dataKey="date"
+                  dataKey="name"
+                />
+
+                <YAxis
+                  allowDecimals={false}
+                />
+
+                <Tooltip />
+
+                <Legend />
+
+                <Line
+                  type="monotone"
+                  dataKey="customers"
+                  name="Customers"
+                  stroke="#4f46e5"
+                  strokeWidth={3}
+                  dot={{
+                    r: 4,
+                  }}
+                  activeDot={{
+                    r: 7,
+                  }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </AnalyticsCard>
+
+      {/* REVENUE */}
+
+      <AnalyticsCard
+        title="Revenue Analytics"
+        description="Revenue performance over the selected period."
+      >
+        <div className="mini-stats">
+          <Stat
+            label="Gross Sales"
+            value={formatCurrency(
+              revenueData.summary
+                .grossSales
+            )}
+          />
+
+          <Stat
+            label="Paid Revenue"
+            value={formatCurrency(
+              revenueData.summary
+                .paidRevenue
+            )}
+          />
+
+          <Stat
+            label="Refunded Amount"
+            value={formatCurrency(
+              revenueData.summary
+                .refundedAmount
+            )}
+          />
+        </div>
+
+        {errors.revenue ? (
+          <ErrorState
+            message={errors.revenue}
+            retry={loadAnalytics}
+          />
+        ) : (
+          <div className="chart-container">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
+              <BarChart
+                data={
+                  revenueData.chart
+                }
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                />
+
+                <XAxis
+                  dataKey="name"
                 />
 
                 <YAxis />
 
                 <Tooltip />
 
-                <Line
-                  type="monotone"
-                  dataKey="orders"
-                  stroke="#2864e8"
-                  strokeWidth={3}
-                  dot={false}
-                />
+                <Legend />
 
-                <Line
-                  type="monotone"
+                <Bar
                   dataKey="revenue"
-                  stroke="#7c3aed"
-                  strokeWidth={3}
-                  dot={false}
+                  name="Revenue"
+                  fill="#7c3aed"
+                  radius={[
+                    6,
+                    6,
+                    0,
+                    0,
+                  ]}
                 />
-
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
-          )}
-
-        </div>
-
-      </section>
-
-      {/* SECOND ROW */}
-
-      <div className="analytics-two-column">
-
-        {/* ORDERS */}
-
-        <section className="analytics-card">
-
-          <div className="analytics-card-header">
-            <div>
-              <h2>
-                Orders Overview
-              </h2>
-
-              <p>
-                Order status breakdown.
-              </p>
-            </div>
           </div>
-
-          <div className="order-status-list">
-
-            {Object.entries(
-              orders.byStatus || {}
-            ).map(
-              ([status, value]) => (
-                <div
-                  className="status-line"
-                  key={status}
-                >
-                  <span>
-                    {status}
-                  </span>
-
-                  <strong>
-                    {value}
-                  </strong>
-                </div>
-              )
-            )}
-
-          </div>
-
-          <div className="order-summary-box">
-
-            <div>
-              <span>
-                Total Orders
-              </span>
-
-              <strong>
-                {orders.totalOrdersAllTime ||
-                  0}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Growth
-              </span>
-
-              <strong>
-                {orders.growthPct || 0}%
-              </strong>
-            </div>
-
-          </div>
-
-        </section>
-
-        {/* REVENUE */}
-
-        <section className="analytics-card">
-
-          <div className="analytics-card-header">
-            <div>
-              <h2>
-                Revenue
-              </h2>
-
-              <p>
-                Revenue breakdown.
-              </p>
-            </div>
-          </div>
-
-          <div className="revenue-main">
-            ₹
-            {Number(
-              revenue.paidRevenue || 0
-            ).toLocaleString()}
-          </div>
-
-          <div className="revenue-list">
-
-            <div>
-              <span>
-                Gross Sales
-              </span>
-
-              <strong>
-                ₹
-                {Number(
-                  revenue.grossSales || 0
-                ).toLocaleString()}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Refunded
-              </span>
-
-              <strong>
-                ₹
-                {Number(
-                  revenue.refundedAmount || 0
-                ).toLocaleString()}
-              </strong>
-            </div>
-
-            <div>
-              <span>
-                Tax
-              </span>
-
-              <strong>
-                ₹
-                {Number(
-                  revenue.breakdown?.tax ||
-                    0
-                ).toLocaleString()}
-              </strong>
-            </div>
-
-          </div>
-
-        </section>
-
-      </div>
+        )}
+      </AnalyticsCard>
 
       {/* INVENTORY */}
 
-      <section className="analytics-card">
-
-        <div className="analytics-card-header">
-          <div>
-            <h2>
-              Inventory
-            </h2>
-
-            <p>
-              Current stock health.
-            </p>
-          </div>
-        </div>
-
-        <div className="inventory-grid">
-
-          <InventoryItem
-            label="Stock On Hand"
-            value={
-              inventory.stockOnHand
-            }
+      <AnalyticsCard
+        title="Inventory Analytics"
+        description="Current inventory statistics."
+      >
+        {errors.inventory ? (
+          <ErrorState
+            message={errors.inventory}
+            retry={loadAnalytics}
           />
-
-          <InventoryItem
-            label="Reserved"
-            value={
-              inventory.reservedStock
-            }
+        ) : inventoryData.chart
+            .length === 0 ? (
+          <EmptyState
+            text="No inventory analytics data found."
           />
-
-          <InventoryItem
-            label="Sold"
-            value={
-              inventory.soldStock
-            }
-          />
-
-          <InventoryItem
-            label="Low Stock"
-            value={
-              inventory.lowStockVariants
-            }
-          />
-
-          <InventoryItem
-            label="Out of Stock"
-            value={
-              inventory.outOfStockVariants
-            }
-          />
-
-        </div>
-
-      </section>
-
-      {/* TOP PRODUCTS + CUSTOMERS */}
-
-      <div className="analytics-two-column">
-
-        <section className="analytics-card">
-
-          <div className="analytics-card-header">
-            <div>
-              <h2>
-                Top Products
-              </h2>
-            </div>
-          </div>
-
-          <div className="simple-list">
-
-            {topProducts.length === 0 ? (
-              <p className="muted">
-                No products available.
-              </p>
-            ) : (
-              topProducts.map(
-                (product, index) => (
-                  <div
-                    className="simple-list-row"
-                    key={
-                      product.productId ||
-                      index
-                    }
-                  >
-
-                    <div>
-                      <strong>
-                        {product.title}
-                      </strong>
-
-                      <span>
-                        {product.unitsSold ||
-                          0} units sold
-                      </span>
-                    </div>
-
-                    <strong>
-                      ₹
-                      {Number(
-                        product.revenue ||
-                          0
-                      ).toLocaleString()}
-                    </strong>
-
-                  </div>
-                )
-              )
-            )}
-
-          </div>
-
-        </section>
-
-        <section className="analytics-card">
-
-          <div className="analytics-card-header">
-            <div>
-              <h2>
-                Top Customers
-              </h2>
-            </div>
-          </div>
-
-          <div className="simple-list">
-
-            {topCustomers.length === 0 ? (
-              <p className="muted">
-                No customers available.
-              </p>
-            ) : (
-              topCustomers.map(
-                (customer, index) => (
-                  <div
-                    className="simple-list-row"
-                    key={
-                      customer.userId ||
-                      index
-                    }
-                  >
-
-                    <div>
-                      <strong>
-                        {customer.fullName}
-                      </strong>
-
-                      <span>
-                        {customer.email}
-                      </span>
-                    </div>
-
-                    <strong>
-                      ₹
-                      {Number(
-                        customer.spent || 0
-                      ).toLocaleString()}
-                    </strong>
-
-                  </div>
-                )
-              )
-            )}
-
-          </div>
-
-        </section>
-
-      </div>
-
-      {/* VENDORS */}
-
-      <section className="analytics-card">
-
-        <div className="analytics-card-header">
-          <div>
-            <h2>
-              Top Vendors
-            </h2>
-
-            <p>
-              Vendor sales performance.
-            </p>
-          </div>
-        </div>
-
-        <div className="simple-list">
-
-          {vendors.length === 0 ? (
-            <div className="chart-empty">
-              No vendor data available.
-            </div>
-          ) : (
-            vendors.map(
-              (vendor, index) => (
-                <div
-                  className="simple-list-row"
-                  key={
-                    vendor.vendorId ||
-                    index
-                  }
-                >
-
-                  <div>
-                    <strong>
-                      {vendor.shopName}
-                    </strong>
-
-                    <span>
-                      {vendor.orders || 0} orders
-                    </span>
-                  </div>
-
-                  <div className="vendor-money">
-                    <strong>
-                      ₹
-                      {Number(
-                        vendor.sales || 0
-                      ).toLocaleString()}
-                    </strong>
-
-                    <span>
-                      Commission ₹
-                      {Number(
-                        vendor.commission ||
-                          0
-                      ).toLocaleString()}
-                    </span>
-                  </div>
-
-                </div>
-              )
-            )
-          )}
-
-        </div>
-
-      </section>
-
-      {/* RECENT ORDERS */}
-
-      <section className="analytics-card">
-
-        <div className="analytics-card-header">
-          <div>
-            <h2>
-              Recent Orders
-            </h2>
-          </div>
-        </div>
-
-        {recentOrders.length === 0 ? (
-          <div className="chart-empty">
-            No recent orders available.
-          </div>
         ) : (
-          <div className="orders-table-wrap">
+          <div className="pie-container">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
+              <PieChart>
+                <Pie
+                  data={
+                    inventoryData.chart
+                  }
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="45%"
+                  outerRadius="65%"
+                  innerRadius="28%"
+                  paddingAngle={3}
+                >
+                  {inventoryData.chart.map(
+                    (_, index) => (
+                      <Cell
+                        key={index}
+                        fill={
+                          PIE_COLORS[
+                            index %
+                              PIE_COLORS.length
+                          ]
+                        }
+                      />
+                    )
+                  )}
+                </Pie>
 
-            <table className="orders-table">
+                <Tooltip />
 
-              <thead>
-                <tr>
-                  <th>Order</th>
-                  <th>Customer</th>
-                  <th>Status</th>
-                  <th>Payment</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-
-              <tbody>
-
-                {recentOrders.map(
-                  (order, index) => (
-                    <tr
-                      key={
-                        order.uuid ||
-                        index
-                      }
-                    >
-                      <td>
-                        <strong>
-                          {order.orderNumber}
-                        </strong>
-                      </td>
-
-                      <td>
-                        {order.customer}
-                      </td>
-
-                      <td>
-                        <span className="order-badge">
-                          {order.status}
-                        </span>
-                      </td>
-
-                      <td>
-                        {order.paymentStatus}
-                      </td>
-
-                      <td>
-                        ₹
-                        {Number(
-                          order.amount || 0
-                        ).toLocaleString()}
-                      </td>
-                    </tr>
-                  )
-                )}
-
-              </tbody>
-
-            </table>
-
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         )}
+      </AnalyticsCard>
 
-      </section>
+      {/* PRODUCT */}
 
+      <AnalyticsCard
+        title="Product Analytics"
+        description="Product performance statistics."
+      >
+        <div className="mini-stats">
+          <Stat
+            label="Total Products"
+            value={formatNumber(
+              productData.summary
+                .totalProducts
+            )}
+          />
+
+          <Stat
+            label="Published Products"
+            value={formatNumber(
+              productData.summary
+                .publishedProducts
+            )}
+          />
+
+          <Stat
+            label="Featured Products"
+            value={formatNumber(
+              productData.summary
+                .featuredProducts
+            )}
+          />
+        </div>
+
+        {errors.product ? (
+          <ErrorState
+            message={errors.product}
+            retry={loadAnalytics}
+          />
+        ) : (
+          <div className="chart-container">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
+              <BarChart
+                data={
+                  productData.chart
+                }
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                />
+
+                <XAxis
+                  dataKey="name"
+                />
+
+                <YAxis
+                  allowDecimals={false}
+                />
+
+                <Tooltip />
+
+                <Legend />
+
+                <Bar
+                  dataKey="value"
+                  name="Products"
+                  fill="#059669"
+                  radius={[
+                    6,
+                    6,
+                    0,
+                    0,
+                  ]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </AnalyticsCard>
     </div>
   );
 }
 
-/* =========================================
-   KPI
-========================================= */
+/* =========================================================
+   COMPONENTS
+========================================================= */
 
-function Kpi({
+function SummaryCard({
   title,
   value,
-  growth,
+  icon,
 }) {
   return (
-    <div className="analytics-kpi">
+    <div className="summary-card">
+      <div className="summary-card-content">
+        <span>{title}</span>
+        <strong>{value}</strong>
+      </div>
 
-      <span>
-        {title}
-      </span>
-
-      <strong>
-        {value ?? 0}
-      </strong>
-
-      {growth !== undefined && (
-        <small
-          className={
-            growth >= 0
-              ? "growth-positive"
-              : "growth-negative"
-          }
-        >
-          {growth >= 0 ? "↑" : "↓"}{" "}
-          {Math.abs(growth)}%
-        </small>
-      )}
-
+      <div className="summary-icon">
+        {icon}
+      </div>
     </div>
   );
 }
 
-/* =========================================
-   INVENTORY
-========================================= */
-
-function InventoryItem({
+function Stat({
   label,
   value,
 }) {
   return (
-    <div className="inventory-item">
+    <div className="stat-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
 
-      <span>
-        {label}
-      </span>
+function AnalyticsCard({
+  title,
+  description,
+  children,
+}) {
+  return (
+    <section className="analytics-card">
+      <div className="analytics-card-header">
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
 
-      <strong>
-        {Number(value || 0).toLocaleString()}
-      </strong>
+      {children}
+    </section>
+  );
+}
 
+function ErrorState({
+  message,
+  retry,
+}) {
+  return (
+    <div className="error-state">
+      <div className="error-symbol">
+        !
+      </div>
+
+      <div className="error-details">
+        <h3>
+          Unable to load analytics
+        </h3>
+
+        <p>{message}</p>
+      </div>
+
+      <button
+        type="button"
+        onClick={retry}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function EmptyState({
+  text,
+}) {
+  return (
+    <div className="empty-state">
+      <div className="empty-icon">
+        📊
+      </div>
+
+      <h3>{text}</h3>
+
+      <p>
+        No records were returned by
+        the API.
+      </p>
     </div>
   );
 }
