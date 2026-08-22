@@ -18,39 +18,7 @@ input {
   font: inherit;
 }
 
-.login-page {
-  min-height: 100vh;
 
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  padding: 24px;
-
-  background: #f5f7fb;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 430px;
-
-  padding: 36px;
-
-  background: #ffffff;
-
-  border-radius: 18px;
-
-  box-shadow:
-    0 20px 60px
-    rgba(16, 24, 40, 0.12);
-}
-
-.login-brand {
-  display: flex;
-  align-items: center;
-
-  gap: 12px;
-}
 
 .brand-icon {
   width: 44px;
@@ -68,30 +36,11 @@ input {
   font-size: 20px;
 }
 
-.login-brand h1 {
-  margin: 0;
-  font-size: 21px;
-}
 
-.login-brand p {
-  margin: 4px 0 0;
 
-  color: #667085;
-  font-size: 13px;
-}
 
-.login-title {
-  margin: 32px 0 24px;
-}
 
-.login-title h2 {
-  margin: 0 0 7px;
-}
 
-.login-title p {
-  margin: 0;
-  color: #667085;
-}
 
 .form-group {
   margin-bottom: 18px;
@@ -1141,7 +1090,7 @@ th {
 
 .sidebar {
   width: 250px;
-  height: 100vh;
+  height: 98vh;
 
   position: fixed;
   left: 0;
@@ -2657,13 +2606,7 @@ th {
     width: 100%;
   }
 }
-.users-page {
-  width: 100%;
-  min-height: 100%;
-  padding: 32px;
-  box-sizing: border-box;
-  background: #f5f7fb;
-}
+
 
 /* HEADER */
 
@@ -3036,7 +2979,7 @@ th {
 
 /* RESPONSIVE */
 
-@media (max-width: 900px) {
+/* @media (max-width: 900px) {
   .users-page {
     padding: 24px;
   }
@@ -3083,7 +3026,7 @@ th {
   .users-card-header {
     padding: 18px;
   }
-}
+} */
 .sidebar-menu {
   overflow: hidden;
 }
@@ -3575,7 +3518,7 @@ th {
   overflow-x: auto;
 }
 
-.users-table {
+/* .users-table {
   width: 100%;
   min-width: 850px;
   border-collapse: collapse;
@@ -3600,11 +3543,11 @@ th {
 
 .users-table tbody tr:hover {
   background: #f8fafc;
-}
+} */
 
 /* User */
 
-.user-cell {
+/* .user-cell {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -3637,7 +3580,7 @@ th {
   margin-top: 3px;
   color: #64748b;
   font-size: 13px;
-}
+} */
 
 /* Roles */
 
@@ -4140,4 +4083,15 @@ th {
 
 .forgot-password-link a:hover {
   text-decoration: underline;
+}
+.sidebar {
+  overflow-y: auto !important;
+  overflow-x: hidden  !important;
+
+  /* scrollbar hide */
+  scrollbar-width: none !important; /* Firefox */
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none !important; /* Chrome, Edge, Safari */
 }

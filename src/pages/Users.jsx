@@ -3,7 +3,7 @@ import {
   useEffect,
   useState,
 } from "react";
-
+import "../styles/Users.css";
 import UserModal from "../components/users/UserModal";
 
 import {
